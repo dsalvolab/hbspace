@@ -8,4 +8,4 @@ We developed an open-source, Python code that integrates QTravel BT-10000 GPS an
 
 ## References
 
-Deborah Salvo, Alexandra van den Berg, Deanna Hoelscher, Alejandra Jauregui, Kathryn Janda, Kevin Lanza, Umberto Villa. *Integrating Geographic Positioning Systems and accelerometer monitor data for assessing the spatiotemporal patterns of health behaviors.* 21st Meeting of the International Society of Behavioral Nutrition and Physical Activity (ISBNPA), Phoenix, AZ, USA, MAy 2022.
+Deborah Salvo, Alexandra van den Berg, Deanna Hoelscher, Alejandra Jauregui, Kathryn Janda, Kevin Lanza, Umberto Villa. *Integrating Geographic Positioning Systems and accelerometer monitor data for assessing the spatiotemporal patterns of health behaviors.* 21st Meeting of the International Society of Behavioral Nutrition and Physical Activity (ISBNPA), Phoenix, AZ, USA, May 2022.

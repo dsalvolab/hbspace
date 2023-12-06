@@ -27,5 +27,6 @@ from .parameter import invalidFixesDefaults, \
                        defaultParameters
                        
 from .distance import GeodesicDistance
+from area_of_interest import AreaOfInterest
 
 #from .projection import  UTMprojection

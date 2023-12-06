@@ -17,3 +17,4 @@
 
 from .parameterList import ParameterList
 from .conversions import meter_per_second_to_km_per_hour, km_per_hour_to_meter_per_second
+from .times_of_interest import TimeOfInterest

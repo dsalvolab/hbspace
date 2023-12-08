@@ -415,7 +415,9 @@ class RawGPSData:
         if parameters["rm_sparse"]:
             first_fixes = np.where(self.is_first_fix==1)[0]
             last_fixes = np.where(self.is_last_fix==1)[0]
-            assert(first_fixes.shape[0] == last_fixes.shape[0] )
+            if first_fixes.shape[0] != last_fixes.shape[0]:
+                print("Unmatched first/last fixes: ". first_fixes.shape[0], " ", last_fixes.shape[0])
+                raise Exception("Unmatched first/last fixes")
             for i in np.arange(first_fixes.shape[0]):
                 if self.timestamps[last_fixes[i]] - self.timestamps[first_fixes[i]] <= 180:
                     self._log("Remove sparse points: ", first_fixes[i], last_fixes[i])
@@ -423,15 +425,19 @@ class RawGPSData:
                     self.is_first_fix[first_fixes[i]:last_fixes[i]+1] = 0
                     self.is_last_fix[first_fixes[i]:last_fixes[i]+1] = 0
 
-    def selectTimeFrames(self, time_frame):
+    def selectTimeFrames(self, time_frame) -> int:
         is_selected = np.zeros_like(self.timestamps)
         for ii in np.arange(self.timestamps.shape[0]):
             if time_frame.contains(self.local_datetime[ii]):
                 is_selected[ii] = 1
             else:
-                is_selected[ii] = 1
+                is_selected[ii] = 0
 
         indexes = np.where(is_selected==1)
+
+        if(indexes.shape[0]==0):
+            print("No fixes found in time frame")
+            return -1
 
         self.timestamps = self.timestamps[indexes]
         self.local_timestamps = self.local_timestamps[indexes]
@@ -449,6 +455,8 @@ class RawGPSData:
         
         self.is_last_fix = self.is_last_fix[indexes]
         self.is_last_fix[-1] = 1
+
+        return 1
             
     def getCleanData(self, filter_parameters, GPSData):
         self.filter(filter_parameters)

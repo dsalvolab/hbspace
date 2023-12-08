@@ -117,7 +117,7 @@ def GISlog_writer_commuter(gpsData, fname_out):
 
     with open(fname_out, "w", newline='') as fid:
         writer = csv.DictWriter(fid, fieldnames)
-        writer.writeheader
+        writer.writeheader()
         for trip in gpsData.trips:
             tripid = trip.id
             triptype = trip.type
@@ -140,14 +140,14 @@ def GISlog_writer_commuter(gpsData, fname_out):
 def GISlog_writer_commuter2(gpsData, fname_out):
 
     fieldnames = ['partid', 'fixid', 'fixdate', 'fixtime', 'fixlat','fixlon', 'speed',
-                  'is_home', 'is_dest',
-                   'tripid', 'Outbound_inbound', 'trip_type']
+                  'fixstate', 'is_home', 'is_dest',
+                  'tripid', 'Outbound_inbound', 'trip_type']
 
     partid = gpsData.id
 
     with open(fname_out, "w", newline='') as fid:
         writer = csv.DictWriter(fid, fieldnames)
-        writer.writeheader
+        writer.writeheader()
 
         for index in np.arange(gpsData.latitudes.shape[0]):
             row = {}
@@ -158,6 +158,7 @@ def GISlog_writer_commuter2(gpsData, fname_out):
             row['fixlat']  = gpsData.latitudes[index]
             row['fixlon']  = gpsData.longitudes[index]
             row['speed']   = gpsData.speeds[index]
+            row['fixstate']= gpsData.state[index]
             row['is_home'] = gpsData.is_home[index]
             row['is_dest'] = gpsData.is_dest[index]
             if gpsData.trip_marker[index] > -1:

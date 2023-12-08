@@ -165,6 +165,7 @@ def Triplog_writer_commuter(gpsData, fname_out):
         
     with open(fname_out, "w", newline='') as fid:
         writer = csv.DictWriter(fid, fieldnames)
+        writer.writeheader()
         for trip in gpsData.trips:
             data = trip.getInfo(gpsData)
             writer.writerow(data)

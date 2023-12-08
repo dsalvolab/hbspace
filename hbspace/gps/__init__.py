@@ -15,8 +15,10 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-from .gpsData import GPSData
+from .locTripGpsData import LocTripGPSData
+from .commuteGpsData import CommuteGPSData
 from .trip import Trip
+from .commuteTrip import CommuteTrip, Triplog_writer_commuter
 from .location import Visit, Location
 from .rawGpsData import RawGPSData
 
@@ -27,6 +29,6 @@ from .parameter import invalidFixesDefaults, \
                        defaultParameters
                        
 from .distance import GeodesicDistance
-from area_of_interest import AreaOfInterest
+from .area_of_interest import AreaOfInterest, parse_areas_of_interest
 
 #from .projection import  UTMprojection

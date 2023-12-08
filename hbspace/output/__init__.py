@@ -15,7 +15,7 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-from .GISlog import GISlog_writer
+from .GISlog import GISlog_writer, GISlog_writer_commuter
 
 from .stats import trip_stats_headers, trip_stats
 

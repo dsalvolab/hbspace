@@ -57,11 +57,20 @@ def speedCutoffDefaults():
     #parameters.add_param("slow_walk", [ 0., 1.  ],  "Sedentary speed cutoff value (Km/hour)") #REMOVED!
     return parameters 
 
+def speedCutoffNoBike():
+    parameters = ParameterList() 
+    parameters.add_param("vehicle",   [200., 200.],   "Vehicle speed cutoff value (mean, max) (Km/hour)")
+    parameters.add_param("bike",      [ -1., -1. ], "Bicycle speed cutoff value (mean, max) (Km/hour)")
+    parameters.add_param("walk",      [ 10., 15. ],  "Walk speed cutoff value (mean, max)   (Km/hour)")
+    #parameters.add_param("slow_walk", [ 0., 1.  ],  "Sedentary speed cutoff value (Km/hour)") #REMOVED!
+    return parameters 
+
 def defaultParameters():
     parameters = ParameterList() 
     parameters.add_param("invalid_fixes", invalidFixesDefaults(), "Filter invalid values")
     parameters.add_param("location", locationDetectionDefaults(), "Location detection")
     parameters.add_param("trip", tripDetectionDefaults(), "Trip detection")
     parameters.add_param("speed", speedCutoffDefaults(), "Speed cutoff values")
+    parameters.add_param("speed_no_bike", speedCutoffNoBike(), "Speed cutoff values (no bike use)")
     return parameters
     

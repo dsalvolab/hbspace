@@ -16,28 +16,14 @@
 #
 
 import numpy as np
-from .trip import Trip
-from .location import Visit, Location
+from .fix import Fix
+from .commuteTrip import CommuteTrip
 from .distance import GeodesicDistance
 from ..common.conversions import meter_per_second_to_km_per_hour,\
     km_per_hour_to_meter_per_second
     
-
-    
-class Fix:
-    def __init__(self, tstmp, coords, elev, index):
-        self.tstmp  = tstmp
-        self.coords = coords
-        self.elev   = elev
-        self.index  = index
         
-    def assign(self, other):
-        self.tstmp  = other.tstmp
-        self.coords = other.coords
-        self.elev   = other.elev
-        self.index  = other.index
-        
-class GPSData:
+class CommuteGPSData:
     
     STATIONARY = 0
     MOTION     = 1
@@ -66,28 +52,19 @@ class GPSData:
         self.speeds      = None
         self.cumdist     = None
         
-        self.state           = None
-        self.trip_marker     = None
-        self.trip_type       = None
-        self.location_marker = None
-        self.visit_marker    = None
+        self.state                   = None
+        self.trip_marker             = None
+        self.trip_type               = None
+        self.trip_outbound_inbound   = None #indbound is 1 if home to dest (outbound); 2 if dest to home; 0 no commute trip
+        self.tripCounter             = 0
+
         
         self.is_valid        = None
         
         self.trips = []
-        self.locations = []
-        self.visits = []
         
-        self.locationCounter = 0
-        self.tripCounter     = 0
-        self.visitCounter    = 0
-        
-        self.home_coords  = None
-        self.is_home      = None
-        
-        self.store_maps_coords = None
-        self.store_id     = None
-        self.store_marker = None
+        self.is_home = None
+        self.is_dest = None
         
         self.unordered_source = False
         self.logging = False
@@ -142,41 +119,15 @@ class GPSData:
             
         return tot_time_hours, tot_valid_time_hours, tot_time_hours-tot_valid_time_hours
     
-    def mark_home(self, home_coords, radius):
-        self.home_coords = home_coords
-        self.is_home = np.zeros_like(self.timestamps)
-        for i in np.arange(self.timestamps.shape[0]):
-            fix = self._getFix(i)
-            d = self.g.compute_distance_t(fix.coords, home_coords)
-            if d < radius:
-                self.is_home[i] = 1
-                
-    def mark_store(self, store_maps_coords, radius):
-        self.store_maps_coords = store_maps_coords
-        self.store_id     = -np.ones_like(self.timestamps)
-        self.store_marker = -np.ones_like(self.timestamps)
-        for i in np.arange(self.timestamps.shape[0]):
-            fix = self._getFix(i)
-            d = np.inf
-            my_ci = None
-            for store_id, data in store_maps_coords.items():
-                ci = (data[0], data[1])
-                marker = data[2]
-                di = (fix.coords[0]-ci[0])**2+(fix.coords[1]-ci[1])**2#self.g.compute_distance_t(fix.coords, ci)
-                if di < d:
-                    d = di
-                    self.store_id[i] = store_id
-                    self.store_marker[i] = marker
-                    my_ci = ci
-                    
-            d = self.g.compute_distance_t(fix.coords, my_ci)
-            if d > radius:
-                self.store_id[i]     = -1
-                self.store_marker[i] = -1
-            
+    def mark_home(self, aoi):
+        self.home = aoi
+        self.is_home = aoi.is_within(self.latitudes, self.longitudes)
 
-            
-        
+                
+    def mark_dest(self, aoi):
+        self.dest = aoi
+        self.is_dest = aoi.is_within(self.latitudes, self.longitudes)
+
     def trip_detection(self, trip_parameters):
                 
         first_fixes = np.where(self.is_first_fix == 1)[0]
@@ -185,8 +136,9 @@ class GPSData:
             print("Error:", first_fixes.shape[0], last_fixes.shape[0])
             raise
         
-        self.state       = -np.ones_like(self.timestamps, dtype=np.int)
-        self.trip_marker = -np.ones_like(self.timestamps, dtype=np.int)
+        self.state                 = -np.ones_like(self.timestamps, dtype=np.int)
+        self.trip_marker           = -np.ones_like(self.timestamps, dtype=np.int)
+        self.trip_outbound_inbound = -np.ones_like(self.timestamps, dtype=np.int)
         
         assert len(self.trips) == 0
                 
@@ -204,7 +156,11 @@ class GPSData:
         print( "Detected {0} trips".format(len(self.trips)) )
         
         for trip in self.trips:
-            self.trip_marker[trip.start_index:trip.end_index+1] = trip.id
+            self.trip_marker[trip.start_index:trip.last_index+1] = trip.id
+            self.trip_outbound_inbound[trip.start_index:trip.last_index+1] = trip.Outbound_Inbound(self)
+
+        print( "Detected {0} outbound trips".format( np.sum([trip.Outbound_Inbound(self)==1 for trip in self.trips])) )
+        print( "Detected {0} inbound trips".format( np.sum([trip.Outbound_Inbound(self)==2 for trip in self.trips])) )
 
                 
             
@@ -223,62 +179,19 @@ class GPSData:
         self.trip_type =  -np.ones_like(self.timestamps, dtype=np.int)
         for trip in self.trips:
             if trip.type=='slow_walk':
-                self.trip_type[trip.start_index:trip.end_index+1] = 0
+                self.trip_type[trip.start_index:trip.last_index+1] = 0
             if trip.type=='walk':
-                self.trip_type[trip.start_index:trip.end_index+1] = 1
+                self.trip_type[trip.start_index:trip.last_index+1] = 1
             elif trip.type=='bike':
-                self.trip_type[trip.start_index:trip.end_index+1] = 2
+                self.trip_type[trip.start_index:trip.last_index+1] = 2
             elif trip.type=='vehicle':
-                self.trip_type[trip.start_index:trip.end_index+1] = 3
+                self.trip_type[trip.start_index:trip.last_index+1] = 3
             
             
     def _trap_points(self, loc_param):
-        if False:
-            self.state[np.logical_and(self.trip_marker==-1, self.state==self.MOTION) ] = self.MOTION_NOT_TRIP
-            store_start = None
-            for i in np.arange(1, self.state.shape[0]):
-                if self.state[i-1] == self.STATIONARY and self.state[i] == self.MOTION_NOT_TRIP:
-                    store_start = i
-                if self.state[i-1] == self.MOTION_NOT_TRIP and self.state[i] == self.STATIONARY:
-                    if store_start:
-                        dist = self.get_distance(i, store_start-1)
-                        if dist < loc_param['radius']:
-                            self.state[store_start:i] = self.STATIONARY
-                            self._log("Change to stationary: ", store_start, i)
-                    
-            self.state[self.state == self.MOTION_NOT_TRIP] = self.MOTION
-        else:
-            self.state[np.logical_and(self.trip_marker==-1, self.is_valid)] = self.STATIONARY
+        self.state[np.logical_and(self.trip_marker==-1, self.is_valid)] = self.STATIONARY
             
-    
-    def location_detection(self, loc_param):
-        assert self.trip_marker is not None
-        
-        self._trap_points(loc_param)
-        
-        first_fixes = self.is_first_fix.nonzero()[0]
-        last_fixes  = self.is_last_fix.nonzero()[0]
-        
-        self.location_marker = -np.ones_like(self.timestamps, dtype=np.int)
-        self.visit_marker = -np.ones_like(self.timestamps, dtype=np.int)
-        assert len(self.locations) == 0
-        
-        assert len(self.visits) == 0
-                
-        for i in np.arange(first_fixes.shape[0]):
-            self._detect_visits(first_fixes[i], last_fixes[i]+1, loc_param, self.visits)
-        
-        print( "Detected {0} visits".format(len(self.visits)) )
-        
-        self._merge_visits_into_locations(self.visits, loc_param["radius"])
-           
-        print( "Detected {0} locations".format(len(self.locations)) )
-        
-        for location in self.locations:
-            for (f,l,visitid) in zip(location.first_indexes, location.stops, location.visit_ids):
-                self.location_marker[f:l] = location.id
-                self.visit_marker[f:l]    = visitid
-            
+               
     def _getFix(self, i):
         if i < self.timestamps.shape[0]:
             return Fix(self.timestamps[i], (self.latitudes[i], self.longitudes[i]), self.elevations[i], i)
@@ -433,7 +346,7 @@ class GPSData:
         
         id = self.tripCounter
         self.tripCounter += 1
-        trip = Trip(id, start, end,duration, distance, trip_is_valid)
+        trip = CommuteTrip(id, start, end,duration, distance, trip_is_valid)
         
         trip.crowdist = self.g.compute_distance(self.latitudes[start], self.longitudes[start],
                                                 self.latitudes[end],   self.longitudes[end]    )
@@ -453,111 +366,7 @@ class GPSData:
         trip.speedAvg = speedAvg
         
         return trip
-        
-    def _detect_visits(self, start, stop, location_parameters, visits):
-                      
-        if self.state[start] == self.STATIONARY:
-            location_start = start
-        elif self.state[start] == self.MOTION:
-            location_start = None
-        else:
-            raise
-        
-        if location_parameters["pause"]:
-            for i in np.arange(start+1,stop):
-                if self.state[i] in [self.STATIONARY, self.PAUSE] and self.state[i-1] in [self.MOTION]:
-                    assert location_start is None
-                    location_start = i
-                elif self.state[i] == self.MOTION and self.state[i-1] in [self.STATIONARY, self.PAUSE]:
-                    visit = self._isVisit(location_start, i, location_parameters)
-                    location_start = None
-                    if visit:
-                        visits.append( visit )               
-        else:
-            for i in np.arange(start+1,stop):
-                if self.state[i] in [self.STATIONARY] and self.state[i-1] == self.MOTION:
-                    assert location_start is None
-                    location_start = i
-                elif self.state[i] == self.MOTION and self.state[i-1] in [self.STATIONARY]:
-                    visit = self._isVisit(location_start, i, location_parameters)
-                    location_start = None
-                    if visit:
-                        visits.append( visit )
-        
-        if location_start is not None:
-            visit = self._isVisit(location_start, stop, location_parameters)
-            if visit:
-                visits.append( visit )
-                    
-    def _isVisit(self, start_index, stop, location_parameters):
-        
-        if(start_index > stop):
-            print("Start index: ", start_index, "Last index: ", stop)
-            raise
-        
-        if self.timestamps[stop-1] < self.timestamps[start_index]:
-            print("Start index time: ", self.local_datetime[start_index], start_index)
-            print("End index time: ", self.local_datetime[stop-1], stop-1)
-        
-        incomplete_data = self.is_first_fix[start_index] or self.is_last_fix[stop-1]
-        
-        duration = self.timestamps[stop-1] - self.timestamps[start_index]
-
-        is_pause = np.all(self.state[start_index:stop] > self.STATIONARY)
-        
-        if is_pause:
-            self._log("Detected pause between {0} and {1} of length {2}".format(start_index, stop, duration))
-            
-        if duration < location_parameters["min_time"] and is_pause:
-            return None
-        
-        visit_is_valid = True
-        if duration < location_parameters["min_time"] and not incomplete_data:
-            visit_is_valid = False
-            self._log("_isVisit start {0} end {1} duration {2} incomplete data {3}: ".format( 
-                  start_index, stop, duration, incomplete_data))
-            
-        if duration < location_parameters["min_time"] and incomplete_data:
-            self.is_valid[start_index:stop] = 0
-            return
-            
-        if duration < 1.:
-            duration = 1.
-        
-        lats = self.latitudes[start_index:stop]
-        lons = self.longitudes[start_index:stop]
-        cm_lat = np.mean( lats )
-        cm_lon = np.mean( lons )
-        
-        radius = max([self.g.compute_distance(lat, lon, cm_lat, cm_lon) for (lat,lon) in zip(lats, lons) ] )
-        if (radius <= location_parameters["radius"]) or True:
-            cl = Visit(self.visitCounter, cm_lat, cm_lon, radius, duration, start_index, stop)
-            cl.is_valid = visit_is_valid
-            cl.distanceFromHome(self)
-            cl.distanceFromStore(self)
-            self.visitCounter+=1
-            return cl
-        else:
-            if self.g.compute_distance(lats[0], lons[0], cm_lat, cm_lon) > self.g.compute_distance(lats[-1], lons[-1], cm_lat, cm_lon):
-                return self._isVisit(start_index+1, stop, location_parameters)
-            else:
-                return self._isVisit(start_index, stop-1, location_parameters)
-            
-            
-    def _merge_visits_into_locations(self, visits, radius):
-        assert len(self.locations) == 0
-        
-        locationAlreadyVisited = False
-        for visit in visits:
-            for loc in self.locations:
-                locationAlreadyVisited = loc.merge(visit,self,radius)
-                if locationAlreadyVisited:
-                    break
-            if not locationAlreadyVisited:
-                self.locations.append(Location(self.locationCounter, visit, self))
-                self.locationCounter+=1
-                
-                
+                     
     def get_distance(self,i,j):
         fix_i = self._getFix(i)
         fix_j = self._getFix(j)

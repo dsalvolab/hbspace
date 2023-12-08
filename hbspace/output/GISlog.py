@@ -26,8 +26,8 @@ def GISlog_writer(gpsData, fname_in, folder_out):
         GISlog_writer_unordered(gpsData, fname_in, folder_out)
     else:
         GISlog_writer_ordered(gpsData, fname_in, folder_out)
-        
 
+        
 def GISlog_writer_ordered(gpsData, fname_in, folder_out):
     fname_out = os.path.join( folder_out, os.path.basename(fname_in) )
     
@@ -106,6 +106,71 @@ def GISlog_writer_ordered(gpsData, fname_in, folder_out):
         
         for d in data:
             writer.writerow(d)
+
+def GISlog_writer_commuter(gpsData, fname_out):
+
+    fieldnames = ['partid', 'tripid', 'Outbound_inbound',
+                  'trip_type', 'fixid', 'fixdate', 'fixtime',
+                  'fixlat', 'fixlon', 'speed']
+
+    partid = gpsData.id
+
+    with open(fname_out, "w", newline='') as fid:
+        writer = csv.DictWriter(fid, fieldnames)
+        writer.writeheader
+        for trip in gpsData.trips:
+            tripid = trip.id
+            triptype = trip.type
+            outbound_inbound = trip.Outbound_Inbound(gpsData)
+            for index in np.arange(trip.start_index, trip.last_index+1):
+                row = {}
+                row['partid'] = partid
+                row['tripid'] = tripid
+                row['Outbound_inbound'] = outbound_inbound
+                row['trip_type'] = triptype
+                row['fixid']   = index
+                row['fixdate'] = gpsData.local_datetime[index].strftime('%Y-%m-%d')
+                row['fixtime'] = gpsData.local_datetime[index].strftime('%H:%M:%S')
+                row['fixlat']  = gpsData.latitudes[index]
+                row['fixlon']  = gpsData.longitudes[index]
+                row['speed']   = gpsData.speeds[index]
+
+                writer.writerow(row)
+
+def GISlog_writer_commuter2(gpsData, fname_out):
+
+    fieldnames = ['partid', 'fixid', 'fixdate', 'fixtime', 'fixlat','fixlon', 'speed',
+                  'is_home', 'is_dest',
+                   'tripid', 'Outbound_inbound', 'trip_type']
+
+    partid = gpsData.id
+
+    with open(fname_out, "w", newline='') as fid:
+        writer = csv.DictWriter(fid, fieldnames)
+        writer.writeheader
+
+        for index in np.arange(gpsData.latitudes.shape[0]):
+            row = {}
+            row['partid'] = partid
+            row['fixid']   = index
+            row['fixdate'] = gpsData.local_datetime[index].strftime('%Y-%m-%d')
+            row['fixtime'] = gpsData.local_datetime[index].strftime('%H:%M:%S')
+            row['fixlat']  = gpsData.latitudes[index]
+            row['fixlon']  = gpsData.longitudes[index]
+            row['speed']   = gpsData.speeds[index]
+            row['is_home'] = gpsData.is_home[index]
+            row['is_dest'] = gpsData.is_dest[index]
+            if gpsData.trip_marker[index] > -1:
+                row["tripid"] = gpsData.trip_marker[index]+1
+                row["trip_type"] = trip_mode[gpsData.trip_type[index]]
+                row['Outbound_inbound'] = gpsData.trip_outbound_inbound[index]
+            else:
+                row["tripid"] = ''
+                row["trip_type"] = ''
+                row['Outbound_inbound'] = ''
+
+            writer.writerow(row)
+
             
 def get_datetime_std(datestr, timestr):
     datetime_str = datestr + " " + timestr

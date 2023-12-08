@@ -55,7 +55,13 @@ if has_pyproj:
             if pad:
                 d.insert(0, 0.)
         
-            return np.array(d)        
+            return np.array(d)
+
+        def compute_distances_from_o(self, latitudes1, longitudes1, olatitude, olongitude):
+            d = [self.compute_distance(lat1,lon1,olatitude, olongitude)
+                         for (lat1,lon1) in zip(latitudes1, longitudes1) ]  
+            
+            return np.array(d)       
     
         
         def compute_distance(self, lat1, lon1, lat2, lon2):
@@ -89,6 +95,13 @@ class GeodesicDistanceGeopy:
             d = 0.
             
         return d
+    
+    def compute_distances_from_o(self, latitudes1, longitudes1, olatitude, olongitude):
+        d = [self.compute_distance(lat1,lon1,olatitude, olongitude)
+                         for (lat1,lon1) in zip(latitudes1, longitudes1) ]
+  
+    
+        return np.array(d)  
     
     def compute_distance_t(self, coords1, coords2):
         d = gpd.distance(coords1, coords2).meters

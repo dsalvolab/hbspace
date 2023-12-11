@@ -32,6 +32,7 @@ class CommuteTrip:
         self.crowdist = None
         self.speedRMax = None
         self.speedAvg = None
+        self.speed90p = None
         
         self.type = None
         
@@ -73,7 +74,7 @@ class CommuteTrip:
 
     
     def isCommute(self, data):
-        if self.Outbound_Inbound(data) == '':
+        if self.Outbound_Inbound(data) == 0:
             return 0
         else:
             return 1
@@ -81,7 +82,7 @@ class CommuteTrip:
         
     def showMe(self):
         print("Start index", self.start_index)
-        print("End index", self.end_index)
+        print("Last index", self.last_index)
         print("Duration", self.duration)
         print("Distance", self.distance)
         print("Radius", self.radius)
@@ -130,14 +131,30 @@ class CommuteTrip:
         out["trip_duration"]        = self.duration/60.0      #Minutes
         out["trip_dist_traveled"]   = self.distance*1.e-3     #Km
         out["trip_dist_crowflight"] = self.crowdist*1.e-3     #Km
-        out["trip_max_speed"]       = self.speedRMax           #Km/h
+        out["trip_90p_speed"]       = self.speed90p           #Km/h
         out["trip_average_speed"]   = self.speedAvg           #Km/h
         out["trip_type"]            = self.type
             
         return out
+    
+    def appendAccInfo(self, gpsData, accData, cp, out):
+        time_interval = [gpsData.local_datetime[self.start_index],
+                         gpsData.local_datetime[self.last_index]]
+        tot, avg, perc = accData.getCountsStatsInterval(time_interval)
+        out['trip_acc_counts_total']   = tot
+        out['trip_acc_avg_counts_min'] = avg
+        out['trip_acc_90p_counts_min'] = perc
+
+        median, perc, minutes = accData.getIntensityStatsInterval(cp, time_interval)
+        out['trip_acc_intensity_median'] = median
+        out['trip_acc_intensity_90p'] = perc
+        for int_level in cp.levels:
+            ll = int_level.decode()
+            out['trip_acc_{0:s}_min'.format(ll)] = minutes[int_level] 
+
         
     @classmethod
-    def infoKeys(self):
+    def infoKeys(cls):
         return [
                 "partid",                 #Participant ID
                 "tripid",                 #Trip ID
@@ -155,10 +172,28 @@ class CommuteTrip:
                 "trip_duration",          #Trip duration (minutes)
                 "trip_dist_traveled",     #Distance traveled for this trip (Km)
                 "trip_dist_crowflight",   #Crowflight distance between origin and destistantion (Km)
-                "trip_max_speed",         # Robust max speed (km/h)
+                "trip_90p_speed",         # Robust max speed (km/h)
                 "trip_average_speed",     # Average speed
                 "trip_type"               # Trip type: Walk, Bike, Vehicle
                 ]
+    
+    @classmethod
+    def infoKeysAcc(cls):
+        out = cls.infoKeys()
+        acc = ['trip_acc_counts_total',
+               'trip_acc_avg_counts_min',
+               'trip_acc_90p_counts_min',
+               'trip_acc_intensity_median',
+               'trip_acc_intensity_90p',
+               'trip_acc_SED_min',
+               'trip_acc_LPA_min',
+               'trip_acc_MPA_min',
+               'trip_acc_VPA_min']
+        
+        out.extend(acc)
+
+        return out
+        
     
 def Triplog_writer_commuter(gpsData, fname_out):
     fieldnames = CommuteTrip.infoKeys()
@@ -168,4 +203,15 @@ def Triplog_writer_commuter(gpsData, fname_out):
         writer.writeheader()
         for trip in gpsData.trips:
             data = trip.getInfo(gpsData)
+            writer.writerow(data)
+
+def TriplogAcc_writer_commuter(gpsData, accData, activities_cp, fname_out):
+    fieldnames = CommuteTrip.infoKeysAcc()
+        
+    with open(fname_out, "w", newline='') as fid:
+        writer = csv.DictWriter(fid, fieldnames)
+        writer.writeheader()
+        for trip in gpsData.trips:
+            data = trip.getInfo(gpsData)
+            trip.appendAccInfo(gpsData, accData,  activities_cp, data)
             writer.writerow(data)

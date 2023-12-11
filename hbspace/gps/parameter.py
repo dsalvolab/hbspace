@@ -60,8 +60,8 @@ def speedCutoffDefaults():
 def speedCutoffKidDefaults():
     parameters = ParameterList() 
     parameters.add_param("vehicle",   [200., 200.],   "Vehicle speed cutoff value (mean, max) (Km/hour)")
-    parameters.add_param("bike",      [ 15., 35. ], "Bicycle speed cutoff value (mean, max) (Km/hour)")
-    parameters.add_param("walk",      [ 4., 15. ],  "Walk speed cutoff value (mean, max)   (Km/hour)")
+    parameters.add_param("bike",      [ 15., 18. ], "Bicycle speed cutoff value (mean, max) (Km/hour)")
+    parameters.add_param("walk",      [ 4., 5. ],  "Walk speed cutoff value (mean, max)   (Km/hour)")
     #parameters.add_param("slow_walk", [ 0., 1.  ],  "Sedentary speed cutoff value (Km/hour)") #REMOVED!
     return parameters 
 
@@ -69,7 +69,7 @@ def speedCutoffNoBike():
     parameters = ParameterList() 
     parameters.add_param("vehicle",   [200., 200.],   "Vehicle speed cutoff value (mean, max) (Km/hour)")
     parameters.add_param("bike",      [ -1., -1. ], "Bicycle speed cutoff value (mean, max) (Km/hour)")
-    parameters.add_param("walk",      [ 4., 15. ],  "Walk speed cutoff value (mean, max)   (Km/hour)")
+    parameters.add_param("walk",      [ 4., 5. ],  "Walk speed cutoff value (mean, max)   (Km/hour)")
     #parameters.add_param("slow_walk", [ 0., 1.  ],  "Sedentary speed cutoff value (Km/hour)") #REMOVED!
     return parameters 
 

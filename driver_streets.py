@@ -7,18 +7,23 @@ import pathlib
 import typing
 
 class STATUS:
-    success       = 1
-    noGPSfile     = -1
-    GPSunsorted   = -2
-    GPS_no_fixes  = -3
+    success         = 1
+    noGPSfile       = -1
+    GPSunsorted     = -2
+    GPS_no_fixes    = -3
+    excluded_school = -4
     unknown_parsing_error  = -101
     unknown_cleaning_error = -102
 
 
-def analyze_participant(info, toi, schools, parameters, outfiles) -> typing.Dict[str, typing.Any]:
+def analyze_participant(info, toi, schools, cut_points_intensity, parameters, outfiles) -> typing.Dict[str, typing.Any]:
     #,x_part,y_part,school_id,x_sch,y_sch,GPS_data_avail,GPS_filename,ACC_data_avail,ACC_filename,Everbike
     pid = info['part_id']
     school_id = info['school_id']
+    if school_id == '246913114':
+        print('School ID 246913114 was excluded by design')
+        return {'part_id': pid, 'status': STATUS.noGPSfile}
+    
     print('Analysing participant {0:s} from school {1:s}'.format(pid, school_id))
     print('Home: {0:f}, {1:f}'.format(float(info['x_part']), float(info['y_part'])))
     home = AreaOfInterest('home', float(info['y_part']), float(info['x_part']), 50.)
@@ -62,8 +67,20 @@ def analyze_participant(info, toi, schools, parameters, outfiles) -> typing.Dict
     else:
         gps.classify_trip(parameters["speed_kid"])
 
+    print('Percentage of fixes at home (after trapping): ', gps.is_home.mean())
+    print('Percentage of fixes at destination (after trapping): ', gps.is_dest.mean())
+
     GISlog_writer_commuter2(gps, outfiles.gis_log_fname(pid))
-    Triplog_writer_commuter(gps, outfiles.trip_log_fname(pid))
+
+    if info['ACC_data_avail'] in ['0', 0]:
+        Triplog_writer_commuter(gps, outfiles.trip_log_fname(pid))
+    else:
+        acc = AccelerometerData.fromMatFile(info['ACC_filename'], pid)
+        TriplogAcc_writer_commuter(gps, acc, cut_points_intensity, outfiles.trip_log_fname(pid))
+
+
+
+    
 
     return {'part_id': pid, 'status': STATUS.success} 
     
@@ -85,6 +102,9 @@ class Outfiles:
 if __name__ == '__main__':
     fname = '../STREETS_main.csv'
     school_fname = '../STREETS_schools_ER.csv'
+
+    cut_points_intensity = CutPoints.Evenson()
+
     outfiles = Outfiles()
 
     parameters = defaultParameters()
@@ -108,7 +128,7 @@ if __name__ == '__main__':
     with open(fname, newline='') as fid:
         reader = csv.DictReader(fid)
         for r in reader:
-            status = analyze_participant(r, toi, schools, parameters, outfiles)
+            status = analyze_participant(r, toi, schools, cut_points_intensity, parameters, outfiles)
             reportWriter.writerow(status)
 
 

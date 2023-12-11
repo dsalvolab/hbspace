@@ -14,6 +14,9 @@ MAX_COUNT_VAL = 999999
 
 def datenum_to_datetime(datenum):
     """
+
+    https://gist.github.com/victorkristof/b9d794fe1ed12e708b9d
+
     Convert Matlab datenum into Python datetime.
     :param datenum: Date in datenum format
     :return:        Datetime object corresponding to datenum.
@@ -65,7 +68,7 @@ class AccelerometerData:
         self.local_dt = local_dt
         self.ax1_counts = ax1_counts
         self.vm_counts = vm_counts
-        self.epoch = (self.local_dt[1]-self.local_dt[0]).item().total_seconds()
+        self.epoch = (self.local_dt[1]-self.local_dt[0]).total_seconds()
         
         self.is_missing = None
         self.is_valid   = None
@@ -82,7 +85,7 @@ class AccelerometerData:
         vm_counts = np.sqrt( np.sum(data[:,1:4]*data[:,1:4], axis=1) )
         
         datenums = data[:,0]
-        local_dt = np.array([datenum_to_datetime(datenum) for datenum in datenums], dtype=np.datetime64)
+        local_dt = np.array([datenum_to_datetime(datenum) for datenum in datenums], dtype=datetime.datetime)
         
         return cls(partID, fname, local_dt, ax1_counts, vm_counts)
     
@@ -131,10 +134,70 @@ class AccelerometerData:
         
         
     
-    def classify(self, cp):
-        if cp.mode == 'AX1':
-            counts = self.ax1_counts
+    def classify(self, cp, indexes=None):
+        if indexes is None:
+            if cp.mode == 'AX1':
+                counts = self.ax1_counts
+            else:
+                counts = self.vm_counts
         else:
-            counts = self.vm_counts
-            
+            if cp.mode == 'AX1':
+                counts = self.ax1_counts[indexes]
+            else:
+                counts = self.vm_counts[indexes]
+
+    
         return cp.classify(counts, self.epoch)
+    
+    def getCountsStatsInterval(self, time_interval):
+        one_hot = np.logical_and( self.local_dt >= time_interval[0], self.local_dt <= time_interval[0])
+        indexes = np.where(one_hot)[0]
+
+        if(indexes.shape[0] < 2):
+            return '', '', ''
+
+        duration = (self.local_dt[indexes[-1]] - self.local_dt[indexes[0]]).total_seconds()
+
+        if duration < (time_interval[1] -  time_interval[0]).total_seconds() - 2*self.epoch:
+            return '', '', ''
+        
+
+        totCounts = np.sum(self.ax1_counts[indexes])
+        avg_counts_min = totCounts/duration*60
+        counts_min90p  = np.percentile(self.ax1_counts[indexes], 90)*(60./self.epoch)
+
+        return totCounts, avg_counts_min, counts_min90p
+    
+    def getIntensityStatsInterval(self, cp, time_interval):
+        one_hot = np.logical_and( self.local_dt >= time_interval[0], self.local_dt <= time_interval[0])
+        indexes = np.where(one_hot)[0]
+
+        if(indexes.shape[0] < 2):
+            intensity_median = ''
+            intensity_90p = ''
+            minutes = {}
+            for l in cp.levels:
+                minutes[l] = ''
+
+            return intensity_median, intensity_90p, minutes
+
+        duration = (self.local_dt[indexes[-1]] - self.local_dt[indexes[0]]).total_seconds()
+
+        if duration < (time_interval[1] -  time_interval[0]).total_seconds() - 2*self.epoch:
+            intensity_median = ''
+            intensity_90p = ''
+            minutes = {}
+            for l in cp.levels:
+                minutes[l] = ''
+        else:
+            levels = self.classify(cp, indexes)
+            intensity_median = np.percentile(levels, 50, method = 'inverted_cdf')
+            intensity_90p    = np.percentile(levels, 90, method = 'inverted_cdf')
+            minutes = {}
+            for l in cp.levels:
+                minutes[l] = np.sum(levels == l)*(self.epoch/60.)
+
+        return intensity_median, intensity_90p, minutes
+
+
+

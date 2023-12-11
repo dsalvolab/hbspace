@@ -21,6 +21,8 @@ from .commuteTrip import CommuteTrip
 from .distance import GeodesicDistance
 from ..common.conversions import meter_per_second_to_km_per_hour,\
     km_per_hour_to_meter_per_second
+
+import skimage
     
         
 class CommuteGPSData:
@@ -157,6 +159,14 @@ class CommuteGPSData:
         
         for trip in self.trips:
             self.trip_marker[trip.start_index:trip.last_index+1] = trip.id
+            
+        #Trap points
+        self.state[np.logical_and(self.trip_marker==-1, self.is_valid)] = self.STATIONARY
+
+        #Trap home and dest
+        self._trapHomeDest()
+
+        for trip in self.trips:
             self.trip_outbound_inbound[trip.start_index:trip.last_index+1] = trip.Outbound_Inbound(self)
 
         print( "Detected {0} outbound trips".format( np.sum([trip.Outbound_Inbound(self)==1 for trip in self.trips])) )
@@ -188,9 +198,26 @@ class CommuteGPSData:
                 self.trip_type[trip.start_index:trip.last_index+1] = 3
             
             
-    def _trap_points(self, loc_param):
-        self.state[np.logical_and(self.trip_marker==-1, self.is_valid)] = self.STATIONARY
-            
+    def _trapHomeDest(self):
+        is_stationary =  self.state==self.STATIONARY
+        first_fixes = self.is_first_fix.nonzero()[0]
+        last_fixes  = self.is_last_fix.nonzero()[0]
+
+        for i in np.arange(first_fixes.shape[0]):
+            is_stat = is_stationary[first_fixes[i]:last_fixes[i]+1]
+            stays, nstays = skimage.measure.label(is_stat, return_num=True)
+            for stay_index in np.arange(1,nstays+1):
+                indexes = first_fixes[0] + np.where(stays==stay_index)[0]
+                nfix = np.sum(stays==stay_index)
+                xhomefix = np.sum(self.is_home[indexes])
+                if xhomefix / nfix  > 0.4:
+                    self.is_home[indexes] = 1
+
+                xdestfix = np.sum(self.is_dest[indexes])
+                if xdestfix / nfix  > 0.4:
+                    self.is_dest[indexes] = 1
+
+
                
     def _getFix(self, i):
         if i < self.timestamps.shape[0]:
@@ -323,6 +350,7 @@ class CommuteGPSData:
             return None
             
         speedAvg = np.mean(self.speeds[start:end+1])
+        speed90p = np.percentile(self.speeds[start:end+1], 90) 
         maxSpeedIndex = np.argmax(self.speeds[start:end+1])
         if maxSpeedIndex == 0:
             speedMax = self.speeds[start + 1]
@@ -330,6 +358,9 @@ class CommuteGPSData:
             speedMax = self.speeds[end - 1]
         else:
             speedMax = .5*(self.speeds[start + maxSpeedIndex + 1] + self.speeds[start + maxSpeedIndex - 1])
+
+        if speed90p > speedMax:
+            speedMax = speed90p
         
         
         if speedAvg < trip_parameters["min_avg_speed"] and not incomplete_data:

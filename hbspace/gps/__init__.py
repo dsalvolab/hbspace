@@ -18,7 +18,7 @@
 from .locTripGpsData import LocTripGPSData
 from .commuteGpsData import CommuteGPSData
 from .trip import Trip
-from .commuteTrip import CommuteTrip, Triplog_writer_commuter
+from .commuteTrip import CommuteTrip, Triplog_writer_commuter, TriplogAcc_writer_commuter
 from .location import Visit, Location
 from .rawGpsData import RawGPSData
 

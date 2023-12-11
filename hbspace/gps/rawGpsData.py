@@ -433,7 +433,7 @@ class RawGPSData:
             else:
                 is_selected[ii] = 0
 
-        indexes = np.where(is_selected==1)
+        indexes = np.where(is_selected==1)[0]
 
         if(indexes.shape[0]==0):
             print("No fixes found in time frame")

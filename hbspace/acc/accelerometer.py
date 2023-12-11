@@ -150,7 +150,7 @@ class AccelerometerData:
         return cp.classify(counts, self.epoch)
     
     def getCountsStatsInterval(self, time_interval):
-        one_hot = np.logical_and( self.local_dt >= time_interval[0], self.local_dt <= time_interval[0])
+        one_hot = np.logical_and( self.local_dt >= time_interval[0], self.local_dt <= time_interval[1])
         indexes = np.where(one_hot)[0]
 
         if(indexes.shape[0] < 2):
@@ -169,7 +169,7 @@ class AccelerometerData:
         return totCounts, avg_counts_min, counts_min90p
     
     def getIntensityStatsInterval(self, cp, time_interval):
-        one_hot = np.logical_and( self.local_dt >= time_interval[0], self.local_dt <= time_interval[0])
+        one_hot = np.logical_and( self.local_dt >= time_interval[0], self.local_dt <= time_interval[1])
         indexes = np.where(one_hot)[0]
 
         if(indexes.shape[0] < 2):

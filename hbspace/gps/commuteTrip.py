@@ -137,7 +137,8 @@ class CommuteTrip:
             
         return out
     
-    def appendAccInfo(self, gpsData, accData, cp, out):
+    def getAccInfo(self, gpsData, accData, cp):
+        out = {}
         time_interval = [gpsData.local_datetime[self.start_index],
                          gpsData.local_datetime[self.last_index]]
         tot, avg, perc = accData.getCountsStatsInterval(time_interval)
@@ -151,6 +152,8 @@ class CommuteTrip:
         for int_level in cp.levels:
             ll = int_level.decode()
             out['trip_acc_{0:s}_min'.format(ll)] = minutes[int_level] 
+
+        return out
 
         
     @classmethod
@@ -212,6 +215,7 @@ def TriplogAcc_writer_commuter(gpsData, accData, activities_cp, fname_out):
         writer = csv.DictWriter(fid, fieldnames)
         writer.writeheader()
         for trip in gpsData.trips:
-            data = trip.getInfo(gpsData)
-            trip.appendAccInfo(gpsData, accData,  activities_cp, data)
-            writer.writerow(data)
+            info = trip.getInfo(gpsData)
+            info_acc = trip.getAccInfo(gpsData, accData,  activities_cp)
+            info.update(info_acc)
+            writer.writerow(info)

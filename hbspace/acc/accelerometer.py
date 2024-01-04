@@ -45,16 +45,16 @@ class CutPoints:
     @classmethod
     def Evenson(cls):
         #0, 101, 2296, 4012, inf
-        levels = np.array(['SED', 'LPA', 'MPA', 'VPA'], dtype='|S3')
+        levels = ['SED', 'LPA', 'MPA', 'VPA']
         vals = np.array([0, 101, 2296, 4012, MAX_COUNT_VAL], dtype=np.float64)
         mode = 'AX1'
         return cls(levels, vals, mode)
     
     def classify(self, counts, epoch):
-        levels = np.ndarray(counts.shape, dtype='|S3')
+        levels = np.ndarray(counts.shape, dtype=int)
         vals = self.vals*epoch/60.
-        for i, l in enumerate(self.levels):
-            levels[ np.logical_and(counts >= vals[i], counts<vals[i+1]) ] = l
+        for i, ll in enumerate(self.levels):
+            levels[ np.logical_and(counts >= vals[i], counts<vals[i+1]) ] = i
             
         return levels
         
@@ -194,8 +194,8 @@ class AccelerometerData:
             intensity_median = np.percentile(levels, 50, method = 'inverted_cdf')
             intensity_90p    = np.percentile(levels, 90, method = 'inverted_cdf')
             minutes = {}
-            for l in cp.levels:
-                minutes[l] = np.sum(levels == l)*(self.epoch/60.)
+            for i, l in enumerate(cp.levels):
+                minutes[l] = np.sum(levels == i)*(self.epoch/60.)
 
         return intensity_median, intensity_90p, minutes
 

@@ -18,5 +18,6 @@
 from .GISlog import GISlog_writer, GISlog_writer_commuter, GISlog_writer_commuter2
 
 from .stats import trip_stats_headers, trip_stats
+from .commute_stats import commute_trip_stats_headers, commute_trip_stats
 
 from .visualization import *

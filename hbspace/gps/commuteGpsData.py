@@ -207,7 +207,7 @@ class CommuteGPSData:
             is_stat = is_stationary[first_fixes[i]:last_fixes[i]+1]
             stays, nstays = skimage.measure.label(is_stat, return_num=True)
             for stay_index in np.arange(1,nstays+1):
-                indexes = first_fixes[0] + np.where(stays==stay_index)[0]
+                indexes = first_fixes[i] + np.where(stays==stay_index)[0]
                 nfix = np.sum(stays==stay_index)
                 xhomefix = np.sum(self.is_home[indexes])
                 if xhomefix / nfix  > 0.4:
@@ -393,8 +393,8 @@ class CommuteGPSData:
             trip.radius = max(trip.radius, d1, d2)
             
         trip.speedRMax = speedMax
-        
         trip.speedAvg = speedAvg
+        trip.speed90p = speed90p
         
         return trip
                      

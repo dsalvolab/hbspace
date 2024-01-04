@@ -19,6 +19,11 @@ import csv
 
 trip_mode = {-1: "unknown", 0: "slow_walk", 1: "walk", 2: "bike", 3: "vehicle"}
 
+class CommuteDirection:
+    NA      = 0
+    OUTBOUND = 1
+    INBOUND = 2
+
 class CommuteTrip:
     def __init__(self, id=None, start_index=None, last_index=None, duration=None, distance=None, isValid=None):
         self.id = id
@@ -66,11 +71,11 @@ class CommuteTrip:
     
     def Outbound_Inbound(self, data):
         if self.isOutbound(data):
-            return 1
+            return CommuteDirection.OUTBOUND
         elif self.isInbound(data):
-            return 2
+            return CommuteDirection.INBOUND
         else:
-            return 0
+            return CommuteDirection.NA
 
     
     def isCommute(self, data):
@@ -108,9 +113,11 @@ class CommuteTrip:
         out["trip_start_date"]      = data.local_datetime[self.start_index].strftime('%Y-%m-%d')
         out["trip_start_time"]      = data.local_datetime[self.start_index].strftime('%H:%M:%S')
         if self.departedHome(data):
+            out['departed_home']        = 1
             out["trip_start_lat"]       = data.home.lat
             out["trip_start_lon"]       = data.home.lon
         elif self.departedDest(data):
+            out['departed_dest']        = 1
             out["trip_start_lat"]       = data.dest.lat
             out["trip_start_lon"]       = data.dest.lon
         else:
@@ -119,9 +126,11 @@ class CommuteTrip:
         out["trip_end_date"]        = data.local_datetime[self.last_index].strftime('%Y-%m-%d')
         out["trip_end_time"]        = data.local_datetime[self.last_index].strftime('%H:%M:%S')
         if self.arrivedHome(data):
+            out['arrived_home']         = 1
             out["trip_end_lat"]         = data.home.lat
             out["trip_end_lon"]         = data.home.lon
         elif self.arrivedDest(data):
+            out['departed_dest']        = 1
             out["trip_end_lat"]         = data.dest.lat
             out["trip_end_lon"]         = data.dest.lon
         else:
@@ -137,6 +146,12 @@ class CommuteTrip:
             
         return out
     
+    def getCountsStats(self, gpsData, accData):
+        time_interval = [gpsData.local_datetime[self.start_index],
+                         gpsData.local_datetime[self.last_index]]
+        return accData.getCountsStatsInterval(time_interval)
+
+    
     def getAccInfo(self, gpsData, accData, cp):
         out = {}
         time_interval = [gpsData.local_datetime[self.start_index],
@@ -150,8 +165,7 @@ class CommuteTrip:
         out['trip_acc_intensity_median'] = median
         out['trip_acc_intensity_90p'] = perc
         for int_level in cp.levels:
-            ll = int_level.decode()
-            out['trip_acc_{0:s}_min'.format(ll)] = minutes[int_level] 
+            out['trip_acc_{0:s}_min'.format(int_level)] = minutes[int_level] 
 
         return out
 
@@ -164,6 +178,10 @@ class CommuteTrip:
                 "trip_is_valid",
                 'trip_is_commute',
                 'Outbound_inbound',
+                'departed_home',
+                'arrived_home',
+                'departed_dest',
+                'arrived_dest',
                 "trip_start_date",        #Trip Start date (YYYY-MM-DD)
                 "trip_start_time",        #Trip Start time (HH:MM:SS)
                 "trip_start_lat",         #Trip Start latitude (N: positive, S: negative)

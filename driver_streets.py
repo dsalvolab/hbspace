@@ -12,11 +12,12 @@ class STATUS:
     GPSunsorted     = -2
     GPS_no_fixes    = -3
     excluded_school = -4
+    noHomeAddress   = -5
     unknown_parsing_error  = -101
     unknown_cleaning_error = -102
 
 
-def analyze_participant(info, toi, schools, cut_points_intensity, parameters, outfiles) -> typing.Dict[str, typing.Any]:
+def analyze_participant(info, toi, schools, paddresses, cut_points_intensity, parameters, outfiles, summaryWriter) -> typing.Dict[str, typing.Any]:
     #,x_part,y_part,school_id,x_sch,y_sch,GPS_data_avail,GPS_filename,ACC_data_avail,ACC_filename,Everbike
     pid = info['part_id']
     school_id = info['school_id']
@@ -25,8 +26,13 @@ def analyze_participant(info, toi, schools, cut_points_intensity, parameters, ou
         return {'part_id': pid, 'status': STATUS.noGPSfile}
     
     print('Analysing participant {0:s} from school {1:s}'.format(pid, school_id))
-    print('Home: {0:f}, {1:f}'.format(float(info['x_part']), float(info['y_part'])))
-    home = AreaOfInterest('home', float(info['y_part']), float(info['x_part']), 50.)
+    if pid not in paddresses:
+        print("SKIP: Participant {0:s} - no home address available".format(pid))
+        return {'part_id': pid, 'status': STATUS.noHomeAddress}
+    
+    home = paddresses[pid]
+    if home.radius < 30:
+        home.radius = 30.
     school = schools[school_id]
 
     if info['GPS_data_avail'] in ['0', 0]:
@@ -70,17 +76,21 @@ def analyze_participant(info, toi, schools, cut_points_intensity, parameters, ou
     print('Percentage of fixes at home (after trapping): ', gps.is_home.mean())
     print('Percentage of fixes at destination (after trapping): ', gps.is_dest.mean())
 
+    if info['ACC_data_avail'] in ['0', 0]:
+        acc = None
+    else:
+        acc = AccelerometerData.fromMatFile(info['ACC_filename'], pid)
+
     GISlog_writer_commuter2(gps, outfiles.gis_log_fname(pid))
 
     if info['ACC_data_avail'] in ['0', 0]:
         Triplog_writer_commuter(gps, outfiles.trip_log_fname(pid))
     else:
-        acc = AccelerometerData.fromMatFile(info['ACC_filename'], pid)
         TriplogAcc_writer_commuter(gps, acc, cut_points_intensity, outfiles.trip_log_fname(pid))
 
+    summary_stats = commute_trip_stats(gps, acc, cut_points_intensity)
+    summaryWriter.writerow(summary_stats)
 
-
-    
 
     return {'part_id': pid, 'status': STATUS.success} 
     
@@ -102,6 +112,7 @@ class Outfiles:
 if __name__ == '__main__':
     fname = '../STREETS_main.csv'
     school_fname = '../STREETS_schools_ER.csv'
+    address_fname = '../STREETS_cohort_participant_addresses_FIXED_12-21-2023.csv'
 
     cut_points_intensity = CutPoints.Evenson()
 
@@ -112,7 +123,7 @@ if __name__ == '__main__':
     weekdays = np.ones(7)
     weekdays[5:6] = 0
     inbound_start = datetime.time(hour=6, minute=30, second=0)
-    inbound_end = datetime.time(hour=8, minute=0, second=0)
+    inbound_end = datetime.time(hour=9, minute=0, second=0)
     outbound_start = datetime.time(hour=14, minute=30, second=0)
     outbound_end = datetime.time(hour=18, minute=30, second=0)
     inbound_toi  = TimeFrameWindow(inbound_start, inbound_end, weekdays)
@@ -120,15 +131,20 @@ if __name__ == '__main__':
     toi = TimeFrame([inbound_toi,outbound_toi])
 
     schools = parse_areas_of_interest(school_fname, ['school_id','y_sch','x_sch','radius_m'])
+    part_addresses = parse_areas_of_interest(address_fname, ['participant_id', 'y_latitude', 'x_longitude', 'Radius_m'])
 
     report_fid = open('report.csv', 'w', newline='')
     reportWriter = csv.DictWriter(report_fid, fieldnames=['part_id', 'status'])
     reportWriter.writeheader()
 
+    summary_fid = open('summary.csv', 'w', newline='')
+    summaryWriter = csv.DictWriter(report_fid, fieldnames=commute_trip_stats_headers(cut_points_intensity))
+    summaryWriter.writeheader()
+
     with open(fname, newline='') as fid:
         reader = csv.DictReader(fid)
         for r in reader:
-            status = analyze_participant(r, toi, schools, cut_points_intensity, parameters, outfiles)
+            status = analyze_participant(r, toi, schools, part_addresses, cut_points_intensity, parameters, outfiles, summaryWriter)
             reportWriter.writerow(status)
 
 

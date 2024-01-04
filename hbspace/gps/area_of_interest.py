@@ -33,6 +33,7 @@ def parse_areas_of_interest(fname: str, varnames: typing.List[str]) -> typing.Di
     var_area_id = varnames[0]
     with open(fname, newline='') as csvfile:
         reader = csv.DictReader(csvfile)
+        print(reader.fieldnames)
         for row in reader:
             data = [row[k] for k in varnames[1:]]
             try:

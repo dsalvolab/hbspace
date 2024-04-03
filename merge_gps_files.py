@@ -38,7 +38,7 @@ if __name__ == '__main__':
          
     for fname in fnames:
         print(fname)
-        with open(fnames[0], 'r') as fid:
+        with open(fname, 'r') as fid:
             reader = csv.DictReader(fid)
             for row in reader:
                 row['PartId'] = filename2partId(fname)

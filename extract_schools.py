@@ -2,6 +2,7 @@ import csv
 import os
 import glob
 
+# Possibly not needed
 
 def extract(input, output):    
     schools = {}

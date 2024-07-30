@@ -42,10 +42,10 @@ def tripDetectionDefaults():
     parameters.add_param("min_dist",      10, "Minimum distance traveled over 1 minute (meters)")
     parameters.add_param("min_length",   100, "Minimum trip length (meters)")
     parameters.add_param("radius",       30., "Cluster radius (meters)")
-    parameters.add_param("min_dur",      180, "Minimum trip duration (seconds)")
+    parameters.add_param("min_dur",      120, "Minimum trip duration (seconds)")
     parameters.add_param("min_pause",    180, "Minimum pause time (seconds)")
     parameters.add_param("max_pause",    300, "Maximum pause time (seconds)")
-    parameters.add_param("min_avg_speed",1.5, "Minimum avg speed (Km/h)")   #ADDED
+    parameters.add_param("min_avg_speed",0.5, "Minimum avg speed (Km/h)")   #ADDED
     parameters.add_param("single_loc", False, "Allow trips within a single location") #UNUSED!
     return parameters
 

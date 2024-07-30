@@ -22,6 +22,11 @@ class AreaOfInterest:
         
         return is_in
     
+    def intersects(self, other):
+        d = self.distance.compute_distance(self.lat, self.lon, other.lat, other.lon)
+        return d, d < (self.radius+other.radius)
+
+    
 def parse_areas_of_interest(fname: str, varnames: typing.List[str]) -> typing.Dict[str, AreaOfInterest]:
     """
     varname[0]: area_id

@@ -7,68 +7,188 @@ import pathlib
 import typing
 
 class STATUS:
-    success         = 1
-    noGPSfile       = -1
-    GPSunsorted     = -2
-    GPS_no_fixes    = -3
-    excluded_school = -4
-    noHomeAddress   = -5
-    unknown_parsing_error  = -101
-    unknown_cleaning_error = -102
+    success                    = 1
+    excluded_school            = -1
+    missing_school             = -2
+    home_too_close_to_school   = -3
+    home_too_far_from_school   = -4
+    noACCfile                  = -100
+    noGPSfile                  = -200
+    GPSunsorted                = -201
+    GPS_no_fixes               = -202
+    unknown_GPS_parsing_error  = -203
+    unknown_GPS_sorting_error  = -204
+    unknown_GPS_cleaning_error = -205
+
+def report_keys():
+    return ['part_id', 'status', 'home2school_distance',
+            'days', 'weekdays',
+            'fraction_fixes_home', 'fraction_fixes_school']
 
 
-def analyze_participant(info, toi, schools, paddresses, cut_points_intensity, parameters, outfiles, summaryWriter) -> typing.Dict[str, typing.Any]:
-    #,x_part,y_part,school_id,x_sch,y_sch,GPS_data_avail,GPS_filename,ACC_data_avail,ACC_filename,Everbike
-    pid = info['part_id']
+def analyze_participant(info, schools, cut_points_intensity, parameters, outfiles, summaryWriter) -> typing.Dict[str, typing.Any]:
+    years_of_collection = [2018, 2022]
+    # Participant ID
+    pid = info['participant_id']
+
+    ret_val = {k: '' for k in report_keys()}
+    ret_val['part_id'] = pid
+    ret_val['status'] = STATUS.success
+
+    # Get school information
     school_id = info['school_id']
+
+    if school_id == '':
+        print('Missing school info for participant ', pid)
+        ret_val['status'] = STATUS.missing_school
+        return ret_val
+
+
     if school_id == '246913114':
         print('School ID 246913114 was excluded by design')
-        return {'part_id': pid, 'status': STATUS.noGPSfile}
+        ret_val['status'] = STATUS.excluded_school
+        return ret_val
     
     print('Analysing participant {0:s} from school {1:s}'.format(pid, school_id))
-    if pid not in paddresses:
-        print("SKIP: Participant {0:s} - no home address available".format(pid))
-        return {'part_id': pid, 'status': STATUS.noHomeAddress}
-    
-    home = paddresses[pid]
+
+    school = schools[school_id]
+    if school.radius < 30:
+        school.radius = 30.
+   
+    # Home address
+    home = AreaOfInterest("home", float(info["y_latitude"]), 
+                                  float(info["x_longitude"]), 
+                                  float(info["Radius_m"]))
     if home.radius < 30:
         home.radius = 30.
-    school = schools[school_id]
 
-    if info['GPS_data_avail'] in ['0', 0]:
+    h2s_distance, intersects = home.intersects(school)
+    ret_val['home2school_distance'] = h2s_distance
+
+    if intersects:
+        print("SKIP: Participant {0:s} - home too close to school".format(pid))
+        ret_val['status'] = STATUS.home_too_close_to_school
+        return ret_val
+    
+    if h2s_distance > 2000:
+        print("SKIP: Participant {0:s} - home too far from school: {1:f} meters".format(pid, h2s_distance))
+        ret_val['status'] = STATUS.home_too_far_from_school
+        return ret_val
+    
+    # Start and end dates
+    if info["has_dates"]:
+        try:
+            start_date = datetime.datetime.strptime(info["start_date"], "%m/%d/%Y")
+        except:
+            print("WARNING: Participant {0:s} - Can not parse start date {1:s}".format(pid, info["start_date"]) )
+            start_date = None
+
+        try:
+            end_date = datetime.datetime.strptime(info["end_date"], "%m/%d/%Y")
+        except:
+            print("WARNING: Participant {0:s} - Can not parse end date {1:s}".format(pid, info["end_date"]))
+            end_date = None
+
+        if start_date is None or end_date is None:
+            start_date = None
+            end_date = None
+        else:
+            if (end_date - start_date).total_seconds() <= 0.:
+                print("WARNING: Participant {0:s} - Invalid dates: {1:s}-{2:s}".format(
+                    pid, start_date.strftime("%m/%d/%y"), end_date.strftime("%m/%d/%y")) )
+                start_date = None
+                end_date = None
+
+            if start_date.year < years_of_collection[0] or start_date.year > years_of_collection[1]:
+                print("WARNING: Participant {0:s} - Invalid dates: {1:s}-{2:s}".format(
+                    pid, start_date.strftime("%m/%d/%y"), end_date.strftime("%m/%d/%y")) )
+                start_date = None
+                end_date = None
+
+            if end_date.year < years_of_collection[0] or end_date.year > years_of_collection[1]:
+                print("WARNING: Participant {0:s} - Invalid dates: {1:s}-{2:s}".format(
+                    pid, start_date.strftime("%m/%d/%y"), end_date.strftime("%m/%d/%y")) )
+                start_date = None
+                end_date = None
+        
+    if info['has_ACC'] in ['0', 0]:
+        acc = None
+        print("SKIP: Participant {0:s} - no ACC data available".format(pid))
+        ret_val['status'] = STATUS.noACCfile
+        return ret_val
+    else:
+        acc = AccelerometerData.fromMatFile(info['ACC_filename'], pid)
+
+    if start_date is None:
+        assert end_date is None
+        start_date = acc.startDate()
+        end_date   = acc.endDate()
+
+    acc.trim(start_date, end_date)
+
+    if info['has_GPS'] in ['0', 0]:
         print("SKIP: Participant {0:s} - no GPS data available".format(pid))
-        return {'part_id': pid, 'status': STATUS.noGPSfile}
+        ret_val['status'] = STATUS.noACCfile
+        return ret_val
 
-    raw_gps = RawGPSData(info['GPS_filename'], pid, years_of_collection = [2018, 2022])
+    raw_gps = RawGPSData(info['GPS_filename'], pid, years_of_collection=years_of_collection )
 
+
+    success = raw_gps.read_fromQTravel()
+    if success == 0:
+        print("SKIP: Participant {0:s} - Unrecognised GPS header".format(pid))
+        ret_val['status'] = STATUS.unknown_GPS_parsing_error
+        return ret_val
+    
+    status = raw_gps.trim(start_date, end_date)
+
+    if status == -1:
+        print("SKIP: Participant {0:s} - No fixes in window".format(pid))
+        ret_val['status'] = STATUS.GPS_no_fixes
+        return ret_val
+    
     try:
-        success = raw_gps.read_fromQTravel(tryfix=False)
+        success = raw_gps.sort_times()
     except:
         print("SKIP: Participant {0:s} - Unknown exception".format(pid))
-        return {'part_id': pid, 'status': STATUS.unknown_parsing_error}
+        ret_val['status'] = STATUS.unknown_GPS_sorting_error
+        return ret_val
 
     if success == 0:
         print("SKIP: Participant {0:s} - GPS data not sorted".format(pid))
-        return {'part_id': pid, 'status': STATUS.GPSunsorted}
-
-    status = raw_gps.selectTimeFrames(toi)
-    if status == -1:
-        print("SKIP: Participant {0:s} - No fixes in window".format(pid))
-        return {'part_id': pid, 'status': STATUS.GPS_no_fixes}
-    
+        ret_val['status'] = STATUS.GPSunsorted
+        return ret_val
+        
     try:
         gps = raw_gps.getCleanData(parameters["invalid_fixes"], CommuteGPSData)
     except Exception:
         print("SKIP: Participant {0:s} - Unknown cleaning exception".format(pid))
-        return {'part_id': pid, 'status': STATUS.unknown_cleaning_error}
-    tdiff = gps.local_datetime[-1] - gps.local_datetime[0]
-    print('Days: ', tdiff.days+1)
+        ret_val['status'] = STATUS.unknown_GPS_cleaning_error
+        return ret_val
+    
+    days = np.unique([d.date() for d in gps.local_datetime])
+    
+    number_of_days = days.shape[0]
+    # Return the day of the week as an integer, where Monday is 0 and Sunday is 6. 
+    is_week_day    = np.array([d.weekday() < 5 for d in days])
+    weekdays = days[is_week_day]
+    number_of_weekdays = weekdays.shape[0]
+
+    ret_val['days']     = number_of_days
+    ret_val['weekdays'] = number_of_weekdays
+
+    print("Found {0} days and {1} week-days", number_of_days, number_of_weekdays)
+
     gps.mark_home(home)
     print('Percentage of fixes at home: ', gps.is_home.mean())
     gps.mark_dest(school)
-    print('Percentage of fixes at destination: ', gps.is_dest.mean())
+    print('Percentage of fixes at school: ', gps.is_dest.mean())
+
+    ret_val['fraction_fixes_home'] = gps.is_home.mean()
+    ret_val['fraction_fixes_school'] = gps.is_dest.mean()
+
     gps.trip_detection(parameters["trip"])
-    if info['Everbike'] == 0:
+    if info['everbike'] == 0:
         gps.classify_trip(parameters["speed_no_bike"])
     else:
         gps.classify_trip(parameters["speed_kid"])
@@ -76,14 +196,14 @@ def analyze_participant(info, toi, schools, paddresses, cut_points_intensity, pa
     print('Percentage of fixes at home (after trapping): ', gps.is_home.mean())
     print('Percentage of fixes at destination (after trapping): ', gps.is_dest.mean())
 
-    if info['ACC_data_avail'] in ['0', 0]:
-        acc = None
-    else:
-        acc = AccelerometerData.fromMatFile(info['ACC_filename'], pid)
+    ret_val['fraction_fixes_home'] = gps.is_home.mean()
+    ret_val['fraction_fixes_school'] = gps.is_dest.mean()
+
+
 
     GISlog_writer_commuter2(gps, outfiles.gis_log_fname(pid))
 
-    if info['ACC_data_avail'] in ['0', 0]:
+    if info['has_ACC'] in ['0', 0]:
         Triplog_writer_commuter(gps, outfiles.trip_log_fname(pid))
     else:
         TriplogAcc_writer_commuter(gps, acc, cut_points_intensity, outfiles.trip_log_fname(pid))
@@ -92,7 +212,7 @@ def analyze_participant(info, toi, schools, paddresses, cut_points_intensity, pa
     summaryWriter.writerow(summary_stats)
 
 
-    return {'part_id': pid, 'status': STATUS.success} 
+    return ret_val 
     
 
 class Outfiles:
@@ -110,9 +230,9 @@ class Outfiles:
 
 
 if __name__ == '__main__':
-    fname = '../STREETS_main.csv'
-    school_fname = '../STREETS_schools_ER.csv'
-    address_fname = '../STREETS_cohort_participant_addresses_FIXED_12-21-2023.csv'
+    fname = 'STREETS_main.csv'
+    base_dir = "/Users/uvilla/Library/CloudStorage/Box-Box/STREETS Device data/Raw Device Data for GPS-ACC matching/Time 1 - data for new code"
+    school_fname = os.path.join(base_dir, 'STREETS_schools_ER.csv')
 
     cut_points_intensity = CutPoints.Evenson()
 
@@ -122,19 +242,31 @@ if __name__ == '__main__':
 
     weekdays = np.ones(7)
     weekdays[5:6] = 0
-    inbound_start = datetime.time(hour=6, minute=30, second=0)
-    inbound_end = datetime.time(hour=9, minute=0, second=0)
-    outbound_start = datetime.time(hour=14, minute=30, second=0)
-    outbound_end = datetime.time(hour=18, minute=30, second=0)
-    inbound_toi  = TimeFrameWindow(inbound_start, inbound_end, weekdays)
-    outbound_toi = TimeFrameWindow(outbound_start, outbound_end, weekdays)
-    toi = TimeFrame([inbound_toi,outbound_toi])
+    h2s_start = datetime.time(hour=6, minute=30, second=0)
+    h2s_end = datetime.time(hour=8, minute=30, second=0)
+    h2s_toi  = TimeFrameWindow(h2s_start, h2s_end, weekdays)
+
+    s2hx_start = datetime.time(hour=14, minute=30, second=0)
+    s2hx_end = datetime.time(hour=18, minute=30, second=0)
+    s2hx_toi = TimeFrameWindow(s2hx_start, s2hx_end, weekdays)
+
+    at_home_start = datetime.time(hour=4, minute=30, second=0)
+    at_home_end = h2s_start
+    at_home_toi = TimeFrameWindow(at_home_start, at_home_end, weekdays)
+
+    at_school_start = h2s_start
+    at_school_end   = datetime.time(hour=10, minute=30, second=0)
+    at_school_toi_am  =TimeFrameWindow(at_school_start, at_school_end, weekdays)
+
+    at_school_start = datetime.time(hour=12, minute=30, second=0)
+    at_school_end = s2hx_start
+    at_school_toi_am  =TimeFrameWindow(at_school_start, at_school_end, weekdays)
+
 
     schools = parse_areas_of_interest(school_fname, ['school_id','y_sch','x_sch','radius_m'])
-    part_addresses = parse_areas_of_interest(address_fname, ['participant_id', 'y_latitude', 'x_longitude', 'Radius_m'])
-
+ 
     report_fid = open('report.csv', 'w', newline='')
-    reportWriter = csv.DictWriter(report_fid, fieldnames=['part_id', 'status'])
+    reportWriter = csv.DictWriter(report_fid, fieldnames=report_keys())
     reportWriter.writeheader()
 
     summary_fid = open('summary.csv', 'w', newline='')
@@ -144,7 +276,7 @@ if __name__ == '__main__':
     with open(fname, newline='') as fid:
         reader = csv.DictReader(fid)
         for r in reader:
-            status = analyze_participant(r, toi, schools, part_addresses, cut_points_intensity, parameters, outfiles, summaryWriter)
+            status = analyze_participant(r,  schools, cut_points_intensity, parameters, outfiles, summaryWriter)
             reportWriter.writerow(status)
 
 

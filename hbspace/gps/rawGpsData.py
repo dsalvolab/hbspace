@@ -32,15 +32,23 @@ def my_date_parser(strdate, strtime):
     out = np.empty(strdate.shape, dtype = datetime.datetime)
     for ii in np.arange(strdate.shape[0]):
         str_datetime = strdate[ii] + " " + strtime[ii]
+        out_ii = None
         if ii == 0:
-            print(str_datetime)
+            print("[my_data_parser]: first date: ", str_datetime)
         try:
-            out[ii] = datetime.datetime.strptime(str_datetime, "%Y/%m/%d %H:%M:%S")
+            out_ii = datetime.datetime.strptime(str_datetime, "%Y/%m/%d %H:%M:%S")
         except:
             try:
-                out[ii] = datetime.datetime.strptime(str_datetime, "%m/%d/%Y %H:%M:%S")
+                out_ii = datetime.datetime.strptime(str_datetime, "%m/%d/%Y %H:%M:%S")
             except:
-                out[ii] = datetime.datetime.strptime(str_datetime, "%m%/%d/%y %H:%M:%S")
+                out_ii = datetime.datetime.strptime(str_datetime, "%m%/%d/%y %H:%M:%S")
+
+        if out_ii is not None:
+            out[ii] = out_ii
+        else:
+            print("[my_date_paser]: Error in parsing ", str_datetime)
+            raise
+
     
     return out
     
@@ -58,6 +66,17 @@ class RawGPSData:
             self.id = os.path.splitext( os.path.basename(fname) )[0]
         else:
             self.id = id
+
+        self.latitudes        = None
+        self.longitudes       = None
+        self.speeds           = None #"km/h"
+        self.elevations       = None #"meters"
+        self.headings         = None
+        self.timestamps       = None
+        self.local_timestamps = None
+        self.local_datetime   = None
+        self.utc_timestamps   = None
+        self.utc_datetime     = None
 
         self.unordered_source = False
 
@@ -116,33 +135,38 @@ class RawGPSData:
         else:
             success = self.isSorted()
         
-        self.is_valid   = np.ones_like(self.timestamps)
+        self.is_valid   = np.ones_like(self.utc_timestamps)
         
-        self.is_first_fix = np.zeros_like(self.timestamps)
+        self.is_first_fix = np.zeros_like(self.utc_timestamps)
         self.is_first_fix[0] = 1
         
-        self.is_last_fix = np.zeros_like(self.timestamps)
+        self.is_last_fix = np.zeros_like(self.utc_timestamps)
         self.is_last_fix[-1] = 1
 
         return success
 
     def read_fromQTravel(self, tryfix=True):
-        colnames = ['INDEX', 'RCR', 'UTC_DATE', 'UTC_TIME', 'LOCAL_DATE', 'LOCAL_TIME',
-                    'MS',   'VALID', 'LATITUDE',   'N_S', 'LONGITUDE',     'E_W', 
+        colnames = ['INDEX', 'RCR', 'UTC DATE', 'UTC TIME', 'LOCAL DATE', 'LOCAL TIME',
+                    'MS',   'VALID', 'LATITUDE',   'N/S', 'LONGITUDE',     'E/W', 
                     'HEIGHT', 'SPEED', 'HEADING',
                     'PDOP', 'HDOP', 'VDOP', 
                     'NSAT(USED/VIEW)', 'SAT INFO (SID-ELE-AZI-SNR)', 'DISTANCE']
         
         
         with open(self.fname, 'r') as fid:
-            headers = fid.readline().split(",")
+            headers = [h.strip() for h in fid.readline().split(",")]
             if len(headers) != len(colnames):
-                raise InputError()
+                print(headers)
+                return 0
+            for h,c in zip(headers, colnames):
+                if h != c:
+                    print(headers)
+                    return 0
         
         parse_dates={"utc_datetime": [2,3], "local_datetime": [4,5]}
 
             
-        colnames = [name.lower() for name in colnames]
+        colnames = [name.lower().replace(" ", "_").replace("/", "_") for name in colnames]
         data = pandas.read_csv(self.fname, names=colnames, parse_dates=parse_dates, date_parser=my_date_parser, header=0, skipinitialspace=True)
 
         self.setDatesTimeStamps(data)
@@ -159,30 +183,30 @@ class RawGPSData:
         
         self.is_missing = None
         
-        success = 0
-        if tryfix:
-            self._ensure_sorted()
-            self._ensure_no_duplicates()
-            success = 1
-        else:
-            success = self.isSorted()
-
-        self.is_valid   = np.ones_like(self.timestamps)
+        self.is_valid   = np.ones_like(self.utc_timestamps)
         
-        self.is_first_fix = np.zeros_like(self.timestamps)
+        self.is_first_fix = np.zeros_like(self.utc_timestamps)
         self.is_first_fix[0] = 1
         
-        self.is_last_fix = np.zeros_like(self.timestamps)
+        self.is_last_fix = np.zeros_like(self.utc_timestamps)
         self.is_last_fix[-1] = 1
 
+        success = 1
         return success
+    
+    def sort_times(self):
+        if self.isSorted() == 0:
+            self._ensure_sorted()
+            self._ensure_no_duplicates()
+
+        return self.isSorted()
 
 
     def setDatesTimeStamps(self, data):
         self.local_datetime = np.array([ self._fixGPSweekNumberRollOver(date) for date in  data.local_datetime ], dtype=datetime.datetime)
         self.utc_datetime = np.array([ self._fixGPSweekNumberRollOver(date)  for date in  data.utc_datetime ], dtype=datetime.datetime)
 
-        self.timestamps = np.array([ date.timestamp() for date in  self.utc_datetime ])
+        self.utc_timestamps = np.array([ date.timestamp() for date in  self.utc_datetime ])
         self.local_timestamps = np.array([ date.timestamp() for date in  self.local_datetime ])
 
     def _fixGPSweekNumberRollOver(self, date):
@@ -197,7 +221,7 @@ class RawGPSData:
         return date
     
     def isSorted(self):
-        jumps = np.where( np.diff(self.timestamps) < 0. )[0]
+        jumps = np.where( np.diff(self.utc_timestamps) < 0. )[0]
         if jumps.shape[0] > 0:
             self.unordered_source = True
             print("Participant ", self.id, " has unsorted timestamps.")
@@ -207,15 +231,17 @@ class RawGPSData:
 
         
     def _ensure_sorted(self):
-        jumps = np.where( np.diff(self.timestamps) < 0. )[0]
+        jumps = np.where( np.diff(self.utc_timestamps) < 0. )[0]
         if jumps.shape[0] > 0:
             self.unordered_source = True
             print("Participant ", self.id, " has unsorted timestamps.")
             self._sortme()
             
     def _sortme(self):
-        indexes = np.argsort(self.timestamps, 0)
-        self.timestamps = self.timestamps[indexes]
+        indexes = np.argsort(self.utc_timestamps, 0)
+        self.utc_timestamps = self.utc_timestamps[indexes]
+        self.local_timestamps = self.local_timestamps[indexes]
+        self.utc_datetime = self.utc_datetime[indexes]
         self.local_datetime = self.local_datetime[indexes]
         self.latitudes  = self.latitudes[indexes]
         self.longitudes = self.longitudes[indexes]
@@ -224,7 +250,7 @@ class RawGPSData:
         self.headings   = self.headings[indexes]
         
     def _ensure_no_duplicates(self):
-        duplicates = np.where( np.diff(self.timestamps) == 0. )[0]
+        duplicates = np.where( np.diff(self.utc_timestamps) == 0. )[0]
         if duplicates.shape[0] > 0:
             self.unordered_source = True
             print("Participant ", self.id, " has duplicated timestamps.")
@@ -232,6 +258,8 @@ class RawGPSData:
             
     def _remove_duplicates(self):
         unique_timestamps = []
+        my_udt      = [] 
+        my_lts      = []
         my_ldt      = []
         my_lat      = []
         my_lon      = []
@@ -241,23 +269,27 @@ class RawGPSData:
         
         current_timestamp = -1
         
-        for i in np.arange(self.timestamps.shape[0]):
-            if current_timestamp == self.timestamps[i]:
+        for i in np.arange(self.utc_timestamps.shape[0]):
+            if current_timestamp == self.utc_timestamps[i]:
                 assert np.isclose(my_lat[-1], self.latitudes[i])
                 assert np.isclose(my_lon[-1], self.longitudes[i])
                 assert np.isclose(my_elev[-1], self.elevations[i], rtol=1e-1, atol=1)
             else:
-                unique_timestamps += [self.timestamps[i]]
+                unique_timestamps += [self.utc_timestamps[i]]
+                my_udt            += [self.utc_datetime[i]]
+                my_lts            += [self.local_timestamps[i]]
                 my_ldt            += [self.local_datetime[i]]
                 my_lat            += [self.latitudes[i]]
                 my_lon            += [self.longitudes[i]]
                 my_elev           += [self.elevations[i]]
                 my_speed          += [self.speeds[i]]
                 my_headings       += [self.headings[i]]
-                current_timestamp = self.timestamps[i]
+                current_timestamp = self.utc_timestamps[i]
                 
-        self.timestamps = np.array(unique_timestamps)
+        self.utc_timestamps = np.array(unique_timestamps)
+        self.utc_datetime   = np.array(my_udt)
         self.local_datetime = np.array(my_ldt)
+        self.local_timestamps  = np.array(my_lts)
         self.latitudes = np.array(my_lat)
         self.longitudes = np.array(my_lon)
         self.elevations = np.array(my_elev)
@@ -285,8 +317,8 @@ class RawGPSData:
             return -lon
         
     def _getFix(self, i):
-        if i < self.timestamps.shape[0]:
-            return Fix(self.timestamps[i], (self.latitudes[i], self.longitudes[i]), self.elevations[i], i)
+        if i < self.utc_timestamps.shape[0]:
+            return Fix(self.utc_timestamps[i], (self.latitudes[i], self.longitudes[i]), self.elevations[i], i)
         else:
             return None
         
@@ -298,7 +330,7 @@ class RawGPSData:
         g = GeodesicDistance()
         prev_fix = self._getFix(0)
         max_speed_ms = km_per_hour_to_meter_per_second(parameters["max_speed"])
-        for i in np.arange(0, self.timestamps.shape[0]):
+        for i in np.arange(0, self.utc_timestamps.shape[0]):
             
             curr_fix = self._getFix(i)
             
@@ -309,12 +341,12 @@ class RawGPSData:
                 self.is_last_fix[prev_fix.index] = 1
                 #assert self.is_last_fix[prev_fix.index] == 1, "Error for fix {0}".format(i)
                 
-            if self.is_first_fix[i] and i == self.timestamps.shape[0]-1:
+            if self.is_first_fix[i] and i == self.utc_timestamps.shape[0]-1:
                 self.is_valid[i] = 0
                 self.is_first_fix[i] = 0
                 continue
 
-            if self.is_first_fix[i] and i < self.timestamps.shape[0]-1:
+            if self.is_first_fix[i] and i < self.utc_timestamps.shape[0]-1:
                 self._log("Fix", i, " was marked as first fix")
                 # Let's do a check forward:
                 next_fix = self._getFix(i+1)
@@ -385,7 +417,7 @@ class RawGPSData:
                 continue
             
             # If this is not the last fix
-            if i < self.timestamps.shape[0] - 1:
+            if i < self.utc_timestamps.shape[0] - 1:
                 next_fix = self._getFix(i+1)
                 # Check if this is last fix (i.e. we have a loss of signal)
                 dt_fwd = next_fix.tstmp - curr_fix.tstmp
@@ -419,15 +451,44 @@ class RawGPSData:
                 print("Unmatched first/last fixes: ". first_fixes.shape[0], " ", last_fixes.shape[0])
                 raise Exception("Unmatched first/last fixes")
             for i in np.arange(first_fixes.shape[0]):
-                if self.timestamps[last_fixes[i]] - self.timestamps[first_fixes[i]] <= 180:
+                if self.utc_timestamps[last_fixes[i]] - self.utc_timestamps[first_fixes[i]] <= 180:
                     self._log("Remove sparse points: ", first_fixes[i], last_fixes[i])
                     self.is_valid[ first_fixes[i]:last_fixes[i]+1 ] = 0
                     self.is_first_fix[first_fixes[i]:last_fixes[i]+1] = 0
                     self.is_last_fix[first_fixes[i]:last_fixes[i]+1] = 0
 
+    def trim(self, start_date, end_date) -> int:
+        is_selected = np.logical_and( self.local_datetime >= start_date,
+                                      self.local_datetime <= end_date)
+
+        indexes = np.where(is_selected==1)[0]
+
+        if(indexes.shape[0]==0):
+            print("No fixes found in time frame")
+            return -1
+
+        self.utc_timestamps = self.utc_timestamps[indexes]
+        self.local_timestamps = self.local_timestamps[indexes]
+        self.local_datetime = self.local_datetime[indexes]
+        self.utc_datetime = self.utc_datetime[indexes]
+        self.latitudes  = self.latitudes[indexes]
+        self.longitudes = self.longitudes[indexes]
+        self.elevations = self.elevations[indexes]
+        self.speeds     = self.speeds[indexes]
+        self.headings   = self.headings[indexes]
+
+        self.is_valid   = self.is_valid[indexes]
+        self.is_first_fix = self.is_first_fix[indexes]
+        self.is_first_fix[0] = 1
+        
+        self.is_last_fix = self.is_last_fix[indexes]
+        self.is_last_fix[-1] = 1
+
+        return 1
+
     def selectTimeFrames(self, time_frame) -> int:
-        is_selected = np.zeros_like(self.timestamps)
-        for ii in np.arange(self.timestamps.shape[0]):
+        is_selected = np.zeros_like(self.utc_timestamps)
+        for ii in np.arange(self.utc_timestamps.shape[0]):
             if time_frame.contains(self.local_datetime[ii]):
                 is_selected[ii] = 1
             else:
@@ -439,7 +500,7 @@ class RawGPSData:
             print("No fixes found in time frame")
             return -1
 
-        self.timestamps = self.timestamps[indexes]
+        self.utc_timestamps = self.utc_timestamps[indexes]
         self.local_timestamps = self.local_timestamps[indexes]
         self.local_datetime = self.local_datetime[indexes]
         self.utc_datetime = self.utc_datetime[indexes]
@@ -462,20 +523,20 @@ class RawGPSData:
         self.filter(filter_parameters)
         out = GPSData(self.id, self.fname)
         out.unordered_source = self.unordered_source
-        out.timestamps = self.timestamps[self.is_valid==1]
+        out.utc_timestamps = self.utc_timestamps[self.is_valid==1]
+        out.local_timestamps = self.local_timestamps[self.is_valid==1]
         out.local_datetime = self.local_datetime[self.is_valid==1]
         out.latitudes  = self.latitudes[self.is_valid==1 ]
         out.longitudes = self.longitudes[self.is_valid==1]
         out.elevations = self.elevations[self.is_valid==1]
         out.is_first_fix = self.is_first_fix[self.is_valid==1 ]
         out.is_last_fix  = self.is_last_fix[self.is_valid==1 ]
-        out.is_valid     = np.ones_like(out.timestamps)
         
         out.is_first_fix[0] = 1
         out.is_last_fix[-1] = 1
         
-        out.valid_fixes_id = np.arange(self.timestamps.shape[0])[self.is_valid==1]
-        out.ntotal_fixes = self.timestamps.shape[0]
+        out.valid_fixes_id = np.arange(self.utc_timestamps.shape[0])[self.is_valid==1]
+        out.ntotal_fixes = self.utc_timestamps.shape[0]
         
         out.logging = self.logging
         out.compute_dist()

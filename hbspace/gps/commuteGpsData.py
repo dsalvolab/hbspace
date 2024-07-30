@@ -16,13 +16,13 @@
 #
 
 import numpy as np
+import skimage
+
 from .fix import Fix
 from .commuteTrip import CommuteTrip
 from .distance import GeodesicDistance
 from ..common.conversions import meter_per_second_to_km_per_hour,\
     km_per_hour_to_meter_per_second
-
-import skimage
     
         
 class CommuteGPSData:
@@ -40,7 +40,9 @@ class CommuteGPSData:
         self.id = id
         self.fname = fname
         
-        self.timestamps     = None
+        self.utc_timestamps = None
+        self.local_timestamps = None
+        self.utc_datetime = None
         self.local_datetime = None
         self.latitudes      = None
         self.longitudes     = None
@@ -48,7 +50,6 @@ class CommuteGPSData:
         self.is_first_fix   = None
         self.is_last_fix    = None
         
-        self.valid_fixes_id = None
         self.ntotal_fixes   = None
         
         self.speeds      = None
@@ -59,9 +60,6 @@ class CommuteGPSData:
         self.trip_type               = None
         self.trip_outbound_inbound   = None #indbound is 1 if home to dest (outbound); 2 if dest to home; 0 no commute trip
         self.tripCounter             = 0
-
-        
-        self.is_valid        = None
         
         self.trips = []
         
@@ -73,29 +71,29 @@ class CommuteGPSData:
         
         
     def compute_dist(self):        
-        self.speeds      = np.zeros_like(self.timestamps)
-        self.cumdist     = np.zeros_like(self.timestamps)
+        self.speeds      = np.zeros_like(self.utc_timestamps)
+        self.cumdist     = np.zeros_like(self.utc_timestamps)
         
         prev_time    = None
         prev_coords  = None
         rundist     =  0
         
-        for i in np.arange(self.timestamps.shape[0]):
+        for i in np.arange(self.utc_timestamps.shape[0]):
             if self.is_first_fix[i]:
                 prev_coords  = (self.latitudes[i], self.longitudes[i])
-                prev_time    = self.timestamps[i]
+                prev_time    = self.utc_timestamps[i]
                 rundist      = 0
                 self.cumdist[i]  = 0
                 
                 next_coords = (self.latitudes[i+1], self.longitudes[i+1])
-                next_time  = self.timestamps[i+1]
+                next_time  = self.utc_timestamps[i+1]
                 
                 d =  self.g.compute_distance_t(prev_coords, next_coords)
                 
                 self.speeds[i]   = d/(next_time - prev_time)
             else:
                 cur_coords = (self.latitudes[i], self.longitudes[i])
-                cur_time   = self.timestamps[i]
+                cur_time   = self.utc_timestamps[i]
                 
                 cur_dist   = self.g.compute_distance_t(prev_coords, cur_coords)
                 
@@ -109,15 +107,14 @@ class CommuteGPSData:
                 prev_time   = cur_time
                 
     def measurement_time(self):
-        self._fix_first_last_fixes()
-        tot_time_hours = (self.timestamps[-1] - self.timestamps[0])/3600.
+        tot_time_hours = (self.utc_timestamps[-1] - self.utc_timestamps[0])/3600.
         tot_valid_time_hours = 0
         
         first_fixes = np.where(self.is_first_fix == 1)[0]
         last_fixes  = np.where(self.is_last_fix == 1)[0]
         
         for (start, last) in zip(first_fixes, last_fixes):
-            tot_valid_time_hours += (self.timestamps[last] - self.timestamps[start])/3600.
+            tot_valid_time_hours += (self.utc_timestamps[last] - self.utc_timestamps[start])/3600.
             
         return tot_time_hours, tot_valid_time_hours, tot_time_hours-tot_valid_time_hours
     
@@ -138,9 +135,9 @@ class CommuteGPSData:
             print("Error:", first_fixes.shape[0], last_fixes.shape[0])
             raise
         
-        self.state                 = -np.ones_like(self.timestamps, dtype=np.int)
-        self.trip_marker           = -np.ones_like(self.timestamps, dtype=np.int)
-        self.trip_outbound_inbound = -np.ones_like(self.timestamps, dtype=np.int)
+        self.state                 = -np.ones_like(self.utc_timestamps, dtype=np.int)
+        self.trip_marker           = -np.ones_like(self.utc_timestamps, dtype=np.int)
+        self.trip_outbound_inbound = -np.ones_like(self.utc_timestamps, dtype=np.int)
         
         assert len(self.trips) == 0
                 
@@ -161,7 +158,7 @@ class CommuteGPSData:
             self.trip_marker[trip.start_index:trip.last_index+1] = trip.id
             
         #Trap points
-        self.state[np.logical_and(self.trip_marker==-1, self.is_valid)] = self.STATIONARY
+        self.state[self.trip_marker==-1] = self.STATIONARY
 
         #Trap home and dest
         self._trapHomeDest()
@@ -186,7 +183,7 @@ class CommuteGPSData:
         for k in type_count:
             print(type_count[k], " trips of type ", k)
         
-        self.trip_type =  -np.ones_like(self.timestamps, dtype=np.int)
+        self.trip_type =  -np.ones_like(self.utc_timestamps, dtype=np.int)
         for trip in self.trips:
             if trip.type=='slow_walk':
                 self.trip_type[trip.start_index:trip.last_index+1] = 0
@@ -220,15 +217,15 @@ class CommuteGPSData:
 
                
     def _getFix(self, i):
-        if i < self.timestamps.shape[0]:
-            return Fix(self.timestamps[i], (self.latitudes[i], self.longitudes[i]), self.elevations[i], i)
+        if i < self.utc_timestamps.shape[0]:
+            return Fix(self.utc_timestamps[i], (self.latitudes[i], self.longitudes[i]), self.elevations[i], i)
         else:
             return None
             
     def _get1MinBeforeFix(self,i, start):
-        curr_time = self.timestamps[i]
+        curr_time = self.utc_timestamps[i]
         for j in np.arange(i-1, start, -1):
-            j_time = self.timestamps[j]
+            j_time = self.utc_timestamps[j]
             if curr_time - j_time > 60:
                 return self._getFix(j)
             
@@ -251,7 +248,7 @@ class CommuteGPSData:
             if dist > min_dist:
                 self.state[i] = self.MOTION
                 if self.state[i-1] == self.STATIONARY and possible_pause:
-                    stop_len = cur_fix.tstmp - self.timestamps[possible_pause_start_index]
+                    stop_len = cur_fix.tstmp - self.utc_timestamps[possible_pause_start_index]
                     possible_pause = False
                     if stop_len < trip_parameters["min_pause"]:
                         self.state[possible_pause_start_index:i] = self.MOTION
@@ -322,10 +319,9 @@ class CommuteGPSData:
         
         if not success and incomplete_data:
             self._log("From start = {0} to end = {1} the diameter only {2} meters. Incomplete trip".format(start, end, my_d))
-            self.is_valid[start:end] =  0
             return None
         
-        duration = self.timestamps[end] - self.timestamps[start]
+        duration = self.utc_timestamps[end] - self.utc_timestamps[start]
         distance = self.cumdist[end] - self.cumdist[start]
         trip_is_valid = True
         
@@ -336,7 +332,6 @@ class CommuteGPSData:
         
         if duration < trip_parameters["min_dur"] and incomplete_data:
             self._log("From start = {0} to end = {1} is only {2} seconds.  Incomplete trip".format(start, end, duration))
-            self.is_valid[start:end] =  0
             return None
         
         if distance < trip_parameters["min_length"] and not incomplete_data:
@@ -346,7 +341,6 @@ class CommuteGPSData:
         
         if distance < trip_parameters["min_length"] and incomplete_data:
             self._log("From start = {0} to end = {1} the distance traveled is only {2} meters. Incomplete trip".format(start, end, distance))
-            self.is_valid[start:end] =  0
             return None
             
         speedAvg = np.mean(self.speeds[start:end+1])
@@ -371,7 +365,6 @@ class CommuteGPSData:
         if speedAvg < trip_parameters["min_avg_speed"] and incomplete_data:
             self._log("From start = {0} to end = {1} the average speed is only {2} km/hours. Incomplete trip".format(start, end, speedAvg))
             trip_is_valid = False
-            self.is_valid[start:end] =  0
             return None
 
         
@@ -408,13 +401,3 @@ class CommuteGPSData:
         if self.logging:
             print(*args)
             
-    def _fix_first_last_fixes(self):
-        for i in np.arange(self.is_first_fix.shape[0]-1):
-            if self.is_first_fix[i]==1 and self.is_valid[i] == 0:
-                self.is_first_fix[i]   = 0
-                self.is_first_fix[i+1] = 1
-                
-        for i in np.arange(self.is_last_fix.shape[0]-1, 1, -1):
-            if self.is_last_fix[i]==1 and self.is_valid[i] == 0:
-                self.is_last_fix[i] = 0
-                self.is_last_fix[i-1] = 1

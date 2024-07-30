@@ -89,6 +89,46 @@ class AccelerometerData:
         
         return cls(partID, fname, local_dt, ax1_counts, vm_counts)
     
+    def trim(self, start_date=None, end_date=None):
+        if start_date is None:
+            start_date = self.startDate()
+
+        if end_date is None:
+            end_date = self.endDate()   
+
+        indicator = np.logical_and(self.local_dt >= start_date, self.local_dt <= end_date)
+
+        self.local_dt   = self.local_dt[indicator]
+        self.ax1_counts = self.ax1_counts[indicator]
+        self.vm_counts  = self.vm_counts[indicator]
+        if self.is_missing is not None:
+            self.is_missing = self.vm_counts[indicator]
+
+        if self.is_valid is not None:
+            self.is_valid   = self.is_valid[indicator]
+
+        
+    
+    def startDate(self):
+        start_date  = datetime.datetime(year = self.local_dt[0].year, 
+                                        month= self.local_dt[0].month,
+                                        day  =  self.local_dt[0].day )
+        
+        if self.local_dt[0].hour > 4:
+            start_date = start_date + datetime.timedelta(days=1)
+
+        return start_date
+    
+    def endDate(self):
+        end_date  = datetime.datetime(year = self.local_dt[-1].year, 
+                                        month= self.local_dt[-1].month,
+                                        day  =  self.local_dt[-1].day )
+        
+        if self.local_dt[-1].hour < 19:
+            end_date = end_date - datetime.timedelta(days=1)
+
+        return end_date
+    
     def extract_and_interpolate(self, new_local_dt):
         start = new_local_dt[0]
         end   = new_local_dt[-1]

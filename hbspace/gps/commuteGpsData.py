@@ -127,6 +127,58 @@ class CommuteGPSData:
         self.dest = aoi
         self.is_dest = aoi.is_within(self.latitudes, self.longitudes)
 
+    def process_tois(self, days, tois):
+        estimated_number_of_trips = np.zeros(2, dtype=np.int)
+        for d in days:
+            estimated_number_of_trips = estimated_number_of_trips + self._process_tois(d, tois)
+
+        return estimated_number_of_trips
+    
+    def _process_tois(self, day, tois):
+        local_date = np.array([local_dt.date() for local_dt in self.local_datetime])
+        indexes = (local_date == day)
+        assert( np.sum(indexes) > 0 )
+        day_local_dt = self.local_datetime[indexes]
+        day_is_home  = self.is_home[indexes]
+        day_is_dest  = self.is_dest[indexes]
+
+        hits_percent = {}
+        total_fixes  = {}
+
+        hits_percent["at_home_night"], total_fixes["at_home_night"] = self._count_hits_in_tois(day_local_dt, day_is_home, tois["at_home_night"])
+        hits_percent["at_school_am"], total_fixes["at_school_am"] = self._count_hits_in_tois(day_local_dt, day_is_dest, tois["at_school_am"])
+        hits_percent["at_school_pm"], total_fixes["at_school_pm"] = self._count_hits_in_tois(day_local_dt, day_is_dest, tois["at_school_pm"])
+
+        est_number_trip = np.zeros(2, dtype=np.int)
+        if hits_percent["at_home_night"] > 0.1 and hits_percent["at_school_am"] > 0.1:
+            est_number_trip[0] = 1
+
+        if  hits_percent["at_school_pm"] > 0.1:
+            est_number_trip[1] = 1
+
+        return est_number_trip
+
+
+    def _count_hits_in_tois(self,day_local_dt, day_marker, toi):
+        hits = 0
+        misses = 0
+        for i, dt in enumerate(day_local_dt):
+            if toi.contains(dt):
+                if day_marker[i]:
+                    hits = hits+1
+                else:
+                    misses = misses + 1
+
+        total_fixes = hits+misses
+        if total_fixes > 0:
+            hits_percent = float(hits)/float(total_fixes)
+        else:
+            hits_percent = 0.
+
+        return hits_percent, total_fixes
+
+
+
     def trip_detection(self, trip_parameters):
                 
         first_fixes = np.where(self.is_first_fix == 1)[0]

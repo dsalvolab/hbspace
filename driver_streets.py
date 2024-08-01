@@ -7,26 +7,29 @@ import pathlib
 import typing
 
 class STATUS:
-    success                    = 1
-    excluded_school            = -1
-    missing_school             = -2
-    home_too_close_to_school   = -3
-    home_too_far_from_school   = -4
-    noACCfile                  = -100
-    noGPSfile                  = -200
-    GPSunsorted                = -201
-    GPS_no_fixes               = -202
-    unknown_GPS_parsing_error  = -203
-    unknown_GPS_sorting_error  = -204
-    unknown_GPS_cleaning_error = -205
+    success                     = 1
+    excluded_school             = -1
+    missing_school              = -2
+    home_too_close_to_school    = -3
+    home_too_far_from_school    = -4
+    noACCfile                   = -100
+    noGPSfile                   = -200
+    GPSunsorted                 = -201
+    GPS_no_fixes                = -202
+    GPS_no_fixes_after_cleaning = -203
+    GPS_incorrect_headers       = -204
+    GPS_empty                   = -205 
+    unknown_GPS_sorting_error   = -206
+    unknown_GPS_cleaning_error  = -207
 
 def report_keys():
     return ['part_id', 'status', 'home2school_distance',
             'days', 'weekdays',
-            'fraction_fixes_home', 'fraction_fixes_school']
+            'fraction_fixes_home', 'fraction_fixes_school',
+            'estimated_h2s_trips', 'estimated_s2x_trips']
 
 
-def analyze_participant(info, schools, cut_points_intensity, parameters, outfiles, summaryWriter) -> typing.Dict[str, typing.Any]:
+def analyze_participant(info, schools, tois, cut_points_intensity, parameters, outfiles, summaryWriter) -> typing.Dict[str, typing.Any]:
     years_of_collection = [2018, 2022]
     # Participant ID
     pid = info['participant_id']
@@ -134,11 +137,15 @@ def analyze_participant(info, schools, cut_points_intensity, parameters, outfile
     raw_gps = RawGPSData(info['GPS_filename'], pid, years_of_collection=years_of_collection )
 
 
-    success = raw_gps.read_fromQTravel()
-    if success == 0:
+    error = raw_gps.read_fromQTravel()
+    if error == -1:
         print("SKIP: Participant {0:s} - Unrecognised GPS header".format(pid))
-        ret_val['status'] = STATUS.unknown_GPS_parsing_error
+        ret_val['status'] = STATUS.GPS_incorrect_headers
         return ret_val
+    elif error == -2:
+        print("SKIP: Participant {0:s} - Corrupted/empty GPS".format(pid))
+        ret_val['status'] = STATUS.GPS_empty
+        return ret_val       
     
     status = raw_gps.trim(start_date, end_date)
 
@@ -147,24 +154,28 @@ def analyze_participant(info, schools, cut_points_intensity, parameters, outfile
         ret_val['status'] = STATUS.GPS_no_fixes
         return ret_val
     
-    try:
-        success = raw_gps.sort_times()
-    except:
-        print("SKIP: Participant {0:s} - Unknown exception".format(pid))
-        ret_val['status'] = STATUS.unknown_GPS_sorting_error
-        return ret_val
+    #try:
+    success = raw_gps.sort_times()
+    #except:
+    #    print("SKIP: Participant {0:s} - Unknown exception".format(pid))
+    #    ret_val['status'] = STATUS.unknown_GPS_sorting_error
+    #    return ret_val
 
     if success == 0:
         print("SKIP: Participant {0:s} - GPS data not sorted".format(pid))
         ret_val['status'] = STATUS.GPSunsorted
         return ret_val
         
-    try:
-        gps = raw_gps.getCleanData(parameters["invalid_fixes"], CommuteGPSData)
-    except Exception:
-        print("SKIP: Participant {0:s} - Unknown cleaning exception".format(pid))
-        ret_val['status'] = STATUS.unknown_GPS_cleaning_error
-        return ret_val
+    #try:
+    gps = raw_gps.getCleanData(parameters["invalid_fixes"], CommuteGPSData)
+    #except Exception:
+    #    print("SKIP: Participant {0:s} - Unknown cleaning exception".format(pid))
+    #    ret_val['status'] = STATUS.unknown_GPS_cleaning_error
+    #    return ret_val
+
+    if gps.ntotal_fixes < 2:
+        print("SKIP: Participant {0:s} - No fixes after cleaning".format(pid))
+        ret_val['status'] = STATUS.GPS_no_fixes_after_cleaning
     
     days = np.unique([d.date() for d in gps.local_datetime])
     
@@ -177,7 +188,7 @@ def analyze_participant(info, schools, cut_points_intensity, parameters, outfile
     ret_val['days']     = number_of_days
     ret_val['weekdays'] = number_of_weekdays
 
-    print("Found {0} days and {1} week-days", number_of_days, number_of_weekdays)
+    print("Found {0} days and {1} week-days".format(number_of_days, number_of_weekdays) )
 
     gps.mark_home(home)
     print('Percentage of fixes at home: ', gps.is_home.mean())
@@ -186,6 +197,13 @@ def analyze_participant(info, schools, cut_points_intensity, parameters, outfile
 
     ret_val['fraction_fixes_home'] = gps.is_home.mean()
     ret_val['fraction_fixes_school'] = gps.is_dest.mean()
+
+    estimated_number_of_trips = gps.process_tois(weekdays, tois)
+
+    ret_val['estimated_h2s_trips'] = estimated_number_of_trips[0]
+    ret_val['estimated_s2x_trips'] = estimated_number_of_trips[1]
+
+    print('Estimated number of trips: h2s = {0}, s2x = {1}'.format(estimated_number_of_trips[0], estimated_number_of_trips[1]))
 
     gps.trip_detection(parameters["trip"])
     if info['everbike'] == 0:
@@ -260,8 +278,11 @@ if __name__ == '__main__':
 
     at_school_start = datetime.time(hour=12, minute=30, second=0)
     at_school_end = s2hx_start
-    at_school_toi_am  =TimeFrameWindow(at_school_start, at_school_end, weekdays)
+    at_school_toi_pm  =TimeFrameWindow(at_school_start, at_school_end, weekdays)
 
+    tois = {"at_home_night": at_home_toi,
+            "at_school_am": at_school_toi_am,
+            "at_school_pm": at_school_toi_pm}
 
     schools = parse_areas_of_interest(school_fname, ['school_id','y_sch','x_sch','radius_m'])
  
@@ -270,13 +291,20 @@ if __name__ == '__main__':
     reportWriter.writeheader()
 
     summary_fid = open('summary.csv', 'w', newline='')
-    summaryWriter = csv.DictWriter(report_fid, fieldnames=commute_trip_stats_headers(cut_points_intensity))
+    summaryWriter = csv.DictWriter(summary_fid, fieldnames=commute_trip_stats_headers(cut_points_intensity))
     summaryWriter.writeheader()
 
     with open(fname, newline='') as fid:
         reader = csv.DictReader(fid)
+        counter = 0
+        success = 0
         for r in reader:
-            status = analyze_participant(r,  schools, cut_points_intensity, parameters, outfiles, summaryWriter)
+            status = analyze_participant(r,  schools, tois, cut_points_intensity, parameters, outfiles, summaryWriter)
             reportWriter.writerow(status)
+            report_fid.flush()
+            counter=counter+1
+            if status['status'] == 1:
+                success = success + status['status']
+            print("Participant: ", counter, " Success rate {0:0.2f}%".format(success/counter*100.), )
 
 

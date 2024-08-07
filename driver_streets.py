@@ -54,7 +54,13 @@ def analyze_participant(info, schools, tois, cut_points_intensity, parameters, o
     
     print('Analysing participant {0:s} from school {1:s}'.format(pid, school_id))
 
-    school = schools[school_id]
+    try:
+        school = schools[school_id]
+    except:
+        print('School ID {school_id} was not found')
+        ret_val['status'] = STATUS.excluded_school
+        return ret_val
+    
     if school.radius < 30:
         school.radius = 30.
    
@@ -176,6 +182,9 @@ def analyze_participant(info, schools, tois, cut_points_intensity, parameters, o
     if gps.ntotal_fixes < 2:
         print("SKIP: Participant {0:s} - No fixes after cleaning".format(pid))
         ret_val['status'] = STATUS.GPS_no_fixes_after_cleaning
+        return ret_val
+
+    print('Date range: ', start_date.strftime('%Y-%m-%d'), " ", end_date.strftime('%Y-%m-%d') )
     
     days = np.unique([d.date() for d in gps.local_datetime])
     
@@ -294,11 +303,17 @@ if __name__ == '__main__':
     summaryWriter = csv.DictWriter(summary_fid, fieldnames=commute_trip_stats_headers(cut_points_intensity))
     summaryWriter.writeheader()
 
+    skip = True
+
     with open(fname, newline='') as fid:
         reader = csv.DictReader(fid)
         counter = 0
         success = 0
         for r in reader:
+            if r['participant_id'] == '212701':
+                skip = False
+            if skip:
+                continue
             status = analyze_participant(r,  schools, tois, cut_points_intensity, parameters, outfiles, summaryWriter)
             reportWriter.writerow(status)
             report_fid.flush()

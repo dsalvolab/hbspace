@@ -37,10 +37,12 @@ def my_date_parser(strdate, strtime):
             str_datetime = strdate[ii] + " " + strtime[ii]
         except:
             print("[my_data_parser]: Error: ", strdate[ii], " ", strtime[ii])
-            return INVALID_DATE
+            out[ii] = INVALID_DATE
+            continue
         
         if '-' in strdate[ii] or '-' in strtime[ii]:
-            return INVALID_DATE
+            out[ii] = INVALID_DATE
+            continue
 
         out_ii = None
         if ii == 0:
@@ -57,7 +59,7 @@ def my_date_parser(strdate, strtime):
             out[ii] = out_ii
         else:
             print("[my_date_paser]: Error in parsing ", str_datetime)
-            return INVALID_DATE
+            out[ii] = INVALID_DATE
 
     
     return out
@@ -359,6 +361,10 @@ class RawGPSData:
         
         
     def _parselatitude(self, lat, n_s):
+
+        if type(lat) != float:
+            lat = float(lat)
+
         n_s = n_s.strip(" ")
         if n_s.lower() not in ['n', 's']:
             print("n_s", n_s)
@@ -370,6 +376,8 @@ class RawGPSData:
             return lat
         
     def _parselongitude(self, lon, e_w):
+        if type(lon) != float:
+            lon = float(lon)
         e_w = e_w.strip(" ")
         assert e_w.lower() in ['e', 'w']
         if e_w.lower() == 'e':
@@ -399,7 +407,8 @@ class RawGPSData:
                 self._log("Current Fix", i, " has timestamp", curr_fix.tstmp, "Previous fix", prev_fix.index, 
                           "has timestamp", prev_fix.tstmp, "Mark it as first fix" )
                 self.is_first_fix[i] = 1
-                self.is_last_fix[prev_fix.index] = 1
+                if self.is_valid[prev_fix.index]:
+                    self.is_last_fix[prev_fix.index] = 1
                 #assert self.is_last_fix[prev_fix.index] == 1, "Error for fix {0}".format(i)
                 
             if self.is_first_fix[i] and i == self.utc_timestamps.shape[0]-1:
@@ -427,6 +436,7 @@ class RawGPSData:
                     self._log("First fix", i, "is invalid (max_dist)")
                     self.is_valid[i]       = 0
                     self.is_first_fix[i]   = 0
+                    self.is_last_fix[i]    = 0
                     self.is_first_fix[i+1] = 1
                     continue
                 
@@ -437,6 +447,7 @@ class RawGPSData:
                     self._log("First fix", i, "is invalid (max_speed)")
                     self.is_valid[i] = 0
                     self.is_first_fix[i]   = 0
+                    self.is_last_fix[i]   = 0
                     self.is_first_fix[i+1] = 1
                     continue
                 
@@ -445,6 +456,7 @@ class RawGPSData:
                     self._log("First fix", i, "is invalid (max_d_elev)")
                     self.is_valid[i] = 0
                     self.is_first_fix[i]   = 0
+                    self.is_last_fix[i]   = 0
                     self.is_first_fix[i+1] = 1
                     continue
                 
@@ -461,6 +473,12 @@ class RawGPSData:
             if distance > parameters["max_dist"]:
                 self._log("Fix", i, " was marked as invalid (max_dist)")
                 self.is_valid[i] = 0
+                if self.is_first_fix[i] == 1:
+                    self.is_first_fix[i] = 0
+                    self.is_first_fix[i+1]  = 1
+                if self.is_last_fix[i] == 1:
+                    self.is_last_fix[i] = 0
+                    self.is_last_fix[i-1]  = 1
                 continue
             
             # If average speed wrt previos fix is larger than max speed mark fix as invalid
@@ -468,12 +486,24 @@ class RawGPSData:
             if dt == 0:
                 self._log("Fix", i, " was marked as invalid (repeated)")
                 self.is_valid[i] = 0
+                if self.is_first_fix[i] == 1:
+                    self.is_first_fix[i] = 0
+                    self.is_first_fix[i+1]  = 1
+                if self.is_last_fix[i] == 1:
+                    self.is_last_fix[i] = 0
+                    self.is_last_fix[i-1]  = 1
                 continue
 
             speed = distance/dt
             if speed > max_speed_ms:
                 self._log("Fix", i, " was marked as invalid (max_speed)")
                 self.is_valid[i] = 0
+                if self.is_first_fix[i] == 1:
+                    self.is_first_fix[i] = 0
+                    self.is_first_fix[i+1]  = 1
+                if self.is_last_fix[i] == 1:
+                    self.is_last_fix[i] = 0
+                    self.is_last_fix[i-1]  = 1
                 continue
             
             # If elevation change wrt previos fix is larger than max elevation change mark fix as invalid
@@ -481,6 +511,12 @@ class RawGPSData:
             if d_elev > parameters["max_d_elev"]:
                 self._log("Fix", i, " was marked as invalid (max_d_elev)")
                 self.is_valid[i] = 0
+                if self.is_first_fix[i] == 1:
+                    self.is_first_fix[i] = 0
+                    self.is_first_fix[i+1]  = 1
+                if self.is_last_fix[i] == 1:
+                    self.is_last_fix[i] = 0
+                    self.is_last_fix[i-1]  = 1
                 continue
             
             # If this is not the last fix
@@ -499,6 +535,12 @@ class RawGPSData:
                     if distance > parameters["min_dist"] and dd_dist < parameters["min_dist"]:
                         self._log("Fix", i, " was marked as invalid (min_dist)")
                         self.is_valid[i] = 0
+                        if self.is_first_fix[i] == 1:
+                            self.is_first_fix[i] = 0
+                            self.is_first_fix[i+1]  = 1
+                        if self.is_last_fix[i] == 1:
+                            self.is_last_fix[i] = 0
+                            self.is_last_fix[i-1]  = 1
                         continue
                     
             # If I am here it means that the fix is valid, so we can move to the next
@@ -516,6 +558,9 @@ class RawGPSData:
             last_fixes = np.where(self.is_last_fix==1)[0]
             if first_fixes.shape[0] != last_fixes.shape[0]:
                 print("Unmatched first/last fixes: ", first_fixes.shape[0], " ", last_fixes.shape[0])
+                print(first_fixes, self.is_valid[first_fixes])
+                print(last_fixes, self.is_valid[last_fixes])
+                print(self.utc_timestamps.shape)
                 raise Exception("Unmatched first/last fixes")
             for i in np.arange(first_fixes.shape[0]):
                 if self.utc_timestamps[last_fixes[i]] - self.utc_timestamps[first_fixes[i]] <= 180:
@@ -596,12 +641,12 @@ class RawGPSData:
         out.is_first_fix = self.is_first_fix[self.is_valid==1 ]
         out.is_last_fix  = self.is_last_fix[self.is_valid==1 ]
         
-        if self.utc_timestamps.shape[0] > 0:
+        if out.utc_timestamps.shape[0] > 0:
             out.is_first_fix[0] = 1
             out.is_last_fix[-1] = 1
         
         out.valid_fixes_id = np.arange(self.utc_timestamps.shape[0])[self.is_valid==1]
-        out.ntotal_fixes = self.utc_timestamps.shape[0]
+        out.ntotal_fixes = out.utc_timestamps.shape[0]
         
         out.logging = self.logging
         out.compute_dist()

@@ -303,17 +303,11 @@ if __name__ == '__main__':
     summaryWriter = csv.DictWriter(summary_fid, fieldnames=commute_trip_stats_headers(cut_points_intensity))
     summaryWriter.writeheader()
 
-    skip = True
-
     with open(fname, newline='') as fid:
         reader = csv.DictReader(fid)
         counter = 0
         success = 0
         for r in reader:
-            if r['participant_id'] == '212701':
-                skip = False
-            if skip:
-                continue
             status = analyze_participant(r,  schools, tois, cut_points_intensity, parameters, outfiles, summaryWriter)
             reportWriter.writerow(status)
             report_fid.flush()

@@ -16,6 +16,7 @@
 #
 
 from .locTripGpsData import LocTripGPSData
+from .enum import GPSState, TripDirection
 from .commuteGpsData import CommuteGPSData
 from .trip import Trip
 from .commuteTrip import CommuteTrip, Triplog_writer_commuter, TriplogAcc_writer_commuter

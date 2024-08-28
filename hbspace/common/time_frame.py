@@ -20,6 +20,10 @@ class TimeFrameWindow:
 
     def contains(self, fixdatetime: datetime.datetime) -> bool:
         return (self.day_of_week[fixdatetime.weekday()] == 1) and (fixdatetime.time() >= self.time_start) and (fixdatetime.time() <= self.time_end)
+    
+    def get_indexes(self, fixdatetime_array: np.array):
+        ind_list = [self.contains(dt) for dt in fixdatetime_array]
+        return np.array(ind_list, dtype='bool')
 
 class TimeFrame:
     def __init__(self, windows: typing.List[TimeFrameWindow]):
@@ -31,6 +35,11 @@ class TimeFrame:
                 return True
             
         return False
+    
+    def get_indexes(self, fixdatetime_array: np.array):
+        ind_list = [self.contains(dt) for dt in fixdatetime_array]
+        return np.array(ind_list, dtype='bool')
+    
 
     
                 

@@ -19,18 +19,14 @@ import numpy as np
 import skimage
 
 from .fix import Fix
+from .enum import GPSState, TripDirection
 from .commuteTrip import CommuteTrip
 from .distance import GeodesicDistance
 from ..common.conversions import meter_per_second_to_km_per_hour,\
     km_per_hour_to_meter_per_second
     
-        
+
 class CommuteGPSData:
-    
-    STATIONARY = 0
-    MOTION     = 1
-    PAUSE      = 2
-    MOTION_NOT_TRIP = -1
     
     def __init__(self, id, fname, proj=None):
         
@@ -56,15 +52,15 @@ class CommuteGPSData:
         self.cumdist     = None
         
         self.state                   = None
-        self.trip_marker             = None
-        self.trip_type               = None
-        self.trip_outbound_inbound   = None #indbound is 1 if home to dest (outbound); 2 if dest to home; 0 no commute trip
-        self.tripCounter             = 0
-        
+
+        self.tripCounter             = 0    
         self.trips = []
         
         self.is_home = None
         self.is_dest = None
+
+        self.home = None
+        self.dest = None
         
         self.unordered_source = False
         self.logging = False
@@ -90,7 +86,7 @@ class CommuteGPSData:
                 
                 d =  self.g.compute_distance_t(prev_coords, next_coords)
                 
-                self.speeds[i]   = d/(next_time - prev_time)
+                self.speeds[i]   =  meter_per_second_to_km_per_hour( d/(next_time - prev_time) )
             else:
                 cur_coords = (self.latitudes[i], self.longitudes[i])
                 cur_time   = self.utc_timestamps[i]
@@ -127,14 +123,14 @@ class CommuteGPSData:
         self.dest = aoi
         self.is_dest = aoi.is_within(self.latitudes, self.longitudes)
 
-    def process_tois(self, days, tois):
+    def estimate_trips(self, days, tois):
         estimated_number_of_trips = np.zeros(2, dtype=np.int)
         for d in days:
-            estimated_number_of_trips = estimated_number_of_trips + self._process_tois(d, tois)
+            estimated_number_of_trips = estimated_number_of_trips + self._estimate_trips(d, tois)
 
         return estimated_number_of_trips
     
-    def _process_tois(self, day, tois):
+    def _estimate_trips(self, day, tois):
         local_date = np.array([local_dt.date() for local_dt in self.local_datetime])
         indexes = (local_date == day)
         assert( np.sum(indexes) > 0 )
@@ -176,23 +172,16 @@ class CommuteGPSData:
             hits_percent = 0.
 
         return hits_percent, total_fixes
-
-
-
-    def trip_detection(self, trip_parameters):
-                
+    
+    def detect_motion(self, trip_parameters):
         first_fixes = np.where(self.is_first_fix == 1)[0]
         last_fixes  = np.where(self.is_last_fix == 1)[0]
         if first_fixes.shape[0] != last_fixes.shape[0]:
             print("Error:", first_fixes.shape[0], last_fixes.shape[0])
             raise
         
-        self.state                 = -np.ones_like(self.utc_timestamps, dtype=np.int)
-        self.trip_marker           = -np.ones_like(self.utc_timestamps, dtype=np.int)
-        self.trip_outbound_inbound = -np.ones_like(self.utc_timestamps, dtype=np.int)
-        
-        assert len(self.trips) == 0
-                
+        self.state = -np.ones_like(self.utc_timestamps, dtype=np.int)
+
         for i in np.arange(first_fixes.shape[0]):
             self._define_state(first_fixes[i], last_fixes[i]+1, trip_parameters)
             
@@ -200,27 +189,230 @@ class CommuteGPSData:
             print(first_fixes)
             print(np.where(self.state==-1))
             raise
-            
-        for i in np.arange(first_fixes.shape[0]):
-            self._trip_detection(first_fixes[i], last_fixes[i]+1, trip_parameters)
-            
-        print( "Detected {0} trips".format(len(self.trips)) )
-        
-        for trip in self.trips:
-            self.trip_marker[trip.start_index:trip.last_index+1] = trip.id
-            
-        #Trap points
-        self.state[self.trip_marker==-1] = self.STATIONARY
 
-        #Trap home and dest
         self._trapHomeDest()
+    
+    def find_home2dest_trips(self, days, tois):
 
-        for trip in self.trips:
-            self.trip_outbound_inbound[trip.start_index:trip.last_index+1] = trip.Outbound_Inbound(self)
+        if self.state is None:
+            print("You must call self.detect_motion first")
+            raise
 
-        print( "Detected {0} outbound trips".format( np.sum([trip.Outbound_Inbound(self)==1 for trip in self.trips])) )
-        print( "Detected {0} inbound trips".format( np.sum([trip.Outbound_Inbound(self)==2 for trip in self.trips])) )
+        for d in days:
+            trip =  self._find_home2dest_trip(d, tois)
+            if trip:
+                self.trips.append(trip)
 
+    def find_dest2x_trips(self, days, tois):
+
+        if self.state is None:
+            print("You must call self.detect_motion first")
+            raise
+
+        for d in days:
+            trip =  self._find_dest2x_trip(d, tois)
+            if trip:
+                self.trips.append(trip)
+
+    def _find_home2dest_trip(self, day, tois):
+        # Step 1: Check the rules to determine if a trip should exists
+        local_date = np.array([local_dt.date() for local_dt in self.local_datetime])
+        indexes = (local_date == day)
+        assert( np.sum(indexes) > 0 )
+        day_local_dt = self.local_datetime[indexes]
+        day_is_home  = self.is_home[indexes]
+        day_is_dest  = self.is_dest[indexes]
+
+        hits_percent = {}
+        total_fixes  = {}
+
+        hits_percent["at_home_night"], total_fixes["at_home_night"] = self._count_hits_in_tois(day_local_dt, day_is_home, tois["at_home_night"])
+        hits_percent["at_school_am"], total_fixes["at_school_am"] = self._count_hits_in_tois(day_local_dt, day_is_dest, tois["at_school_am"])
+
+        if hits_percent["at_home_night"] > 0.1 and hits_percent["at_school_am"] > 0.1:
+            pass
+        else:
+            return None
+        
+        # Step 2: A trip should exists. Select when the window to find a trip starts and ends.
+        
+        tripwindow_day_indexes = tois['trip_h2s'].get_indexes(day_local_dt)
+        trip_window_starts = np.min( day_local_dt[tripwindow_day_indexes] )
+        trip_window_ends   = np.max( day_local_dt[tripwindow_day_indexes] )
+        print("Searching for h2s trip in time window: ", trip_window_starts, " ", trip_window_ends)
+
+        # Step 3: this are the indexes of the trip window
+        trip_window_indexes = np.logical_and(self.local_datetime >= trip_window_starts, 
+                                             self.local_datetime <= trip_window_ends).astype(int)
+        # Find the last fix home and first fix at school within the window
+        trip_start_index = np.nonzero(self.is_home*trip_window_indexes)[0][-1]
+        trip_last_index = np.nonzero(self.is_dest*trip_window_indexes)[0][0]
+        print("Last fix at home: ", self.local_datetime[trip_start_index])
+        print("First fix at school:  ", self.local_datetime[trip_last_index])
+        assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
+        # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE)
+        while self.state[trip_start_index] == GPSState.MOTION and trip_start_index > 0:
+            trip_start_index = trip_start_index - 1
+        while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
+            trip_start_index = trip_start_index + 1
+
+        while self.state[trip_last_index] == GPSState.MOTION and trip_last_index < (self.state.shape[0]-1):
+            trip_last_index = trip_last_index + 1
+        while self.state[trip_last_index] == GPSState.STATIONARY and trip_last_index > 0:
+            trip_last_index = trip_last_index - 1
+
+        trip_end_index = trip_last_index+1
+        print("h2s trip detected between: ", self.local_datetime[trip_start_index],
+                                             " and ", 
+                                              self.local_datetime[trip_last_index])
+        assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
+
+        self.tripCounter = self.tripCounter+1
+        trip = CommuteTrip(partid = self.id,
+                           id=self.tripCounter, start_index=trip_start_index,
+                           end_index=trip_end_index, direction=TripDirection.H2D)
+        
+        trip.computeInfoFromGPS(self)
+
+        return trip
+    
+    def _find_dest2x_trip(self, day, tois):
+        # Step 1: Check the rules to determine if a trip should exists
+        local_date = np.array([local_dt.date() for local_dt in self.local_datetime])
+        indexes = (local_date == day)
+        assert( np.sum(indexes) > 0 )
+        day_local_dt = self.local_datetime[indexes]
+        day_is_dest  = self.is_dest[indexes]
+
+        hits_percent = {}
+        total_fixes  = {}
+
+        hits_percent["at_school_pm"], total_fixes["at_school_pm"] = self._count_hits_in_tois(day_local_dt, day_is_dest, tois["at_school_pm"])
+
+        if  hits_percent["at_school_pm"] > 0.1:
+            pass
+        else:
+            return None
+        
+        # Step 2: A trip should exists. Select when the window to find a trip starts and ends.
+        
+        tripwindow_day_indexes = tois['trip_s2x'].get_indexes(day_local_dt)
+        trip_window_starts = np.min( day_local_dt[tripwindow_day_indexes] )
+        trip_window_ends   = np.max( day_local_dt[tripwindow_day_indexes] )
+        print("Searching for s2x trip in time window: ", trip_window_starts, " ", trip_window_ends)
+
+        # Step 3: this are the indexes of the trip window
+        trip_window_indexes = np.logical_and(self.local_datetime >= trip_window_starts, 
+                                             self.local_datetime <= trip_window_ends).astype(int)
+        # Find the last fix school 
+        trip_start_index = np.nonzero(self.is_dest*trip_window_indexes)[0][-1]
+        print("Last fix at school: ", self.local_datetime[trip_start_index])
+
+        # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE)
+        while self.state[trip_start_index] == GPSState.MOTION and trip_start_index > 0:
+            trip_start_index = trip_start_index - 1
+        while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
+            trip_start_index = trip_start_index + 1
+
+        trip_last_index = trip_start_index + 1
+        while self.state[trip_last_index] == GPSState.MOTION and trip_last_index < (self.state.shape[0]-1):
+            trip_last_index = trip_last_index + 1
+        trip_end_index = trip_last_index + 1
+
+        print("h2x trip detected between: ", self.local_datetime[trip_start_index],
+                                             " and ", 
+                                              self.local_datetime[trip_last_index])
+        assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
+
+        trip_direction = TripDirection.D2X
+        if self.is_home[trip_last_index]:
+            trip_direction = TripDirection.D2H
+        if trip_end_index < self.is_home.shape[0] and self.is_home[trip_end_index]:
+            trip_direction = TripDirection.D2H
+
+        trip = CommuteTrip(partid = self.id,
+                           id=self.tripCounter, start_index=trip_start_index,
+                           end_index=trip_end_index, direction=trip_direction)
+        
+        trip.computeInfoFromGPS(self)
+        self.tripCounter = self.tripCounter+1
+
+        return trip
+
+
+    def findLocation(self,days, toi):
+        out = []
+        for day in days:
+            out_i = self._findLocation(day, toi)
+            if out_i is not None:
+                out.append(out_i)
+
+        return out
+
+    def _findLocation(self, day, toi):
+        local_date = np.array([local_dt.date() for local_dt in self.local_datetime])
+        indexes = (local_date == day)
+        if np.sum(indexes) == 0:
+            return None
+        
+        local_dt = self.local_datetime[indexes]
+        is_home  = self.is_home[indexes]
+        is_dest  = self.is_dest[indexes]
+        lat      = self.latitudes[indexes]
+        lon      = self.longitudes[indexes]
+
+        window_indexes = toi.get_indexes(local_dt)
+        if np.sum(window_indexes) == 0:
+            return None
+        window_is_home = is_home[window_indexes]
+        window_is_dest = is_dest[window_indexes]
+        window_lat     = lat[window_indexes]
+        window_lon     = lon[window_indexes]
+
+        out = {}
+        out['part_id'] = self.id
+        out['school_id'] = self.dest.name
+        out['date'] = day.strftime('%Y-%m-%d')
+        if np.mean(window_is_home) > 0.1 and np.mean(window_is_home) > np.mean(window_is_dest):
+            #I am at home
+            out['lat'] = self.home.lat
+            out['lon'] = self.home.lon
+            out['is_home'] = 1
+            out['is_school'] = 0
+            out['distance_from_home'] = 0.
+            out['distance_from_school'] = self.g.compute_distance(self.home.lat, self.home.lon,
+                                                                  self.dest.lat, self.dest.lon)
+        elif np.mean(window_is_dest) > 0.1:
+            #I am at destination
+            out['lat'] = self.dest.lat
+            out['lon'] = self.dest.lon
+            out['is_home'] = 0
+            out['is_school'] = 1
+            out['distance_from_home'] = self.g.compute_distance(self.home.lat, self.home.lon,
+                                                                  self.dest.lat, self.dest.lon)
+            out['distance_from_school'] = 0.
+        else:
+            #I am elsewhere
+            mylat = np.mean(window_lat)
+            mylon = np.mean(window_lon)
+            print("Mean lat = ", mylat)
+            print("Mean lon = ", mylon)
+            out['lat'] = mylat
+            out['lon'] = mylon
+            out['is_home'] = 0
+            out['is_school'] = 0
+            out['distance_from_home'] = self.g.compute_distance(self.home.lat, self.home.lon,
+                                                                  mylat, mylon)
+            out['distance_from_school'] = self.g.compute_distance(mylat, mylon,
+                                                                  self.dest.lat, self.dest.lon)
+
+
+        return out
+    
+
+
+
+  
                 
             
     def classify_trip(self, parameters_speed_cutoff):
@@ -248,7 +440,7 @@ class CommuteGPSData:
             
             
     def _trapHomeDest(self):
-        is_stationary =  self.state==self.STATIONARY
+        is_stationary =  self.state==GPSState.STATIONARY
         first_fixes = self.is_first_fix.nonzero()[0]
         last_fixes  = self.is_last_fix.nonzero()[0]
 
@@ -290,7 +482,7 @@ class CommuteGPSData:
         possible_pause = False
         possible_pause_start_index = start
         
-        self.state[start] = self.STATIONARY
+        self.state[start] = GPSState.STATIONARY
         
         for i in np.arange(start+1,stop):
             prev_fix = self._get1MinBeforeFix(i, start)
@@ -298,150 +490,26 @@ class CommuteGPSData:
             dist = self.g.compute_distance_t(prev_fix.coords, cur_fix.coords)
             
             if dist > min_dist:
-                self.state[i] = self.MOTION
-                if self.state[i-1] == self.STATIONARY and possible_pause:
+                self.state[i] = GPSState.MOTION
+                if self.state[i-1] == GPSState.STATIONARY and possible_pause:
                     stop_len = cur_fix.tstmp - self.utc_timestamps[possible_pause_start_index]
                     possible_pause = False
                     if stop_len < trip_parameters["min_pause"]:
-                        self.state[possible_pause_start_index:i] = self.MOTION
+                        self.state[possible_pause_start_index:i] = GPSState.MOTION
                     elif stop_len < trip_parameters["max_pause"]:
-                        self.state[possible_pause_start_index:i] = self.PAUSE
+                        self.state[possible_pause_start_index:i] = GPSState.PAUSE
                     else:
-                        self.state[possible_pause_start_index:i] = self.STATIONARY
+                        self.state[possible_pause_start_index:i] = GPSState.STATIONARY
             else:
-                self.state[i] = self.STATIONARY
-                if self.state[i-1] == self.MOTION:
+                self.state[i] = GPSState.STATIONARY
+                if self.state[i-1] == GPSState.MOTION:
                     possible_pause = True
                     possible_pause_start_index = i
                     
-        if self.state[start+1] == self.MOTION:
-            self.state[start] = self.MOTION
+        if self.state[start+1] == GPSState.MOTION:
+            self.state[start] = GPSState.MOTION
                     
-    def _trip_detection(self,start, stop, trip_parameters):
-        
-        self._log("_trip_detection", start, " ", stop)
-        trip_start = None
-        
-        if self.state[start] == self.MOTION:
-            trip_start = start
-            
-        self._log("Trip start: ", trip_start)
-        
-        for i in np.arange(start+1,stop):
-            if self.state[i] == self.MOTION and self.state[i-1] == self.STATIONARY:
-                assert trip_start is None
-                trip_start = i-1
-                self._log("Trip start: ", trip_start)
-            elif self.state[i] == self.STATIONARY and self.state[i-1] == self.MOTION:
-                self._log("Trip end: ", i)
-                trip = self._validateTrip(trip_start, i, trip_parameters)
-                trip_start = None
-                if trip:
-                    self.trips.append( trip )
-
-            elif self.state[i] == self.STATIONARY and self.state[i-1] == self.PAUSE:
-                print("Error going from PAUSE to STATIONARY is forbidden")
-                raise
-            elif self.state[i] == self.PAUSE and self.state[i-1] == self.STATIONARY:
-                print("Error going from STATIONARY to PAUSE is forbidden")
-                raise
-            
-        if trip_start is not None:
-            self._log("Trip end at end of fix: ", i)
-            trip = self._validateTrip(trip_start, stop-1, trip_parameters)
-            if trip:
-                self.trips.append( trip )
-            
-    def _validateTrip(self, start, end, trip_parameters):
-        
-        self._log("_validateTrip", start, " ", end)
-        
-        incomplete_data = self.is_first_fix[start] or self.is_last_fix[end]
-                
-        success =  False
-        for i in np.arange(start,end):
-            my_d = self.get_distance(i+1, start)
-            if my_d > trip_parameters["radius"]:
-                success = True
-                break
-            
-        if not success and not incomplete_data:
-            self._log("From start = {0} to end = {1} the diameter only {2} meters".format(start, end, my_d))
-            return None
-        
-        if not success and incomplete_data:
-            self._log("From start = {0} to end = {1} the diameter only {2} meters. Incomplete trip".format(start, end, my_d))
-            return None
-        
-        duration = self.utc_timestamps[end] - self.utc_timestamps[start]
-        distance = self.cumdist[end] - self.cumdist[start]
-        trip_is_valid = True
-        
-        if duration < trip_parameters["min_dur"] and not incomplete_data:
-            self._log("From start = {0} to end = {1} is only {2} seconds".format(start, end, duration))
-            trip_is_valid = False
-            return None
-        
-        if duration < trip_parameters["min_dur"] and incomplete_data:
-            self._log("From start = {0} to end = {1} is only {2} seconds.  Incomplete trip".format(start, end, duration))
-            return None
-        
-        if distance < trip_parameters["min_length"] and not incomplete_data:
-            self._log("From start = {0} to end = {1} the distance traveled is only {2} meters".format(start, end, distance))
-            trip_is_valid = False
-            return None
-        
-        if distance < trip_parameters["min_length"] and incomplete_data:
-            self._log("From start = {0} to end = {1} the distance traveled is only {2} meters. Incomplete trip".format(start, end, distance))
-            return None
-            
-        speedAvg = np.mean(self.speeds[start:end+1])
-        speed90p = np.percentile(self.speeds[start:end+1], 90) 
-        maxSpeedIndex = np.argmax(self.speeds[start:end+1])
-        if maxSpeedIndex == 0:
-            speedMax = self.speeds[start + 1]
-        elif maxSpeedIndex == end-start:
-            speedMax = self.speeds[end - 1]
-        else:
-            speedMax = .5*(self.speeds[start + maxSpeedIndex + 1] + self.speeds[start + maxSpeedIndex - 1])
-
-        if speed90p > speedMax:
-            speedMax = speed90p
-        
-        
-        if speedAvg < trip_parameters["min_avg_speed"] and not incomplete_data:
-            self._log("From start = {0} to end = {1} the average speed is only {2} km/hours".format(start, end, speedAvg))
-            trip_is_valid = False
-            return None
-        
-        if speedAvg < trip_parameters["min_avg_speed"] and incomplete_data:
-            self._log("From start = {0} to end = {1} the average speed is only {2} km/hours. Incomplete trip".format(start, end, speedAvg))
-            trip_is_valid = False
-            return None
-
-        
-        id = self.tripCounter
-        self.tripCounter += 1
-        trip = CommuteTrip(id, start, end,duration, distance, trip_is_valid)
-        
-        trip.crowdist = self.g.compute_distance(self.latitudes[start], self.longitudes[start],
-                                                self.latitudes[end],   self.longitudes[end]    )
-        
-        trip.radius = trip.crowdist
-        for i in np.arange(start+1, end):
-            d1 = self.g.compute_distance(self.latitudes[start], self.longitudes[start],
-                                                self.latitudes[i], self.longitudes[i] )
-            
-            d2 = self.g.compute_distance(self.latitudes[i], self.longitudes[i],
-                                         self.latitudes[end], self.longitudes[end] )
-            
-            trip.radius = max(trip.radius, d1, d2)
-            
-        trip.speedRMax = speedMax
-        trip.speedAvg = speedAvg
-        trip.speed90p = speed90p
-        
-        return trip
+ 
                      
     def get_distance(self,i,j):
         fix_i = self._getFix(i)

@@ -28,8 +28,20 @@ def report_keys():
             'fraction_fixes_home', 'fraction_fixes_school',
             'estimated_h2s_trips', 'estimated_s2x_trips']
 
+def at_night_keys():
+    return ['part_id', 
+            'school_id',
+            'date',
+            'lat', 'lon',
+            'is_home',
+            'is_school',
+            'distance_from_home',
+            'distance_from_school']
 
-def analyze_participant(info, schools, tois, cut_points_intensity, parameters, outfiles, summaryWriter) -> typing.Dict[str, typing.Any]:
+
+def analyze_participant(info, schools,
+                        tois, cut_points_intensity, parameters,
+                        tripWriter, atNightWriter) -> typing.Dict[str, typing.Any]:
     years_of_collection = [2018, 2022]
     # Participant ID
     pid = info['participant_id']
@@ -199,62 +211,48 @@ def analyze_participant(info, schools, tois, cut_points_intensity, parameters, o
 
     print("Found {0} days and {1} week-days".format(number_of_days, number_of_weekdays) )
 
+    gps.compute_dist()
     gps.mark_home(home)
-    print('Percentage of fixes at home: ', gps.is_home.mean())
     gps.mark_dest(school)
-    print('Percentage of fixes at school: ', gps.is_dest.mean())
+    gps.detect_motion(parameters["trip"])
 
     ret_val['fraction_fixes_home'] = gps.is_home.mean()
     ret_val['fraction_fixes_school'] = gps.is_dest.mean()
 
-    estimated_number_of_trips = gps.process_tois(weekdays, tois)
+    print('Percentage of fixes at home (after trapping): ', ret_val['fraction_fixes_home'])
+    print('Percentage of fixes at destination (after trapping): ', ret_val['fraction_fixes_school'])
+
+    estimated_number_of_trips = gps.estimate_trips(weekdays, tois)
 
     ret_val['estimated_h2s_trips'] = estimated_number_of_trips[0]
     ret_val['estimated_s2x_trips'] = estimated_number_of_trips[1]
 
     print('Estimated number of trips: h2s = {0}, s2x = {1}'.format(estimated_number_of_trips[0], estimated_number_of_trips[1]))
+    gps.find_home2dest_trips(weekdays, tois)
+    gps.find_dest2x_trips(weekdays, tois)
 
-    gps.trip_detection(parameters["trip"])
-    if info['everbike'] == 0:
-        gps.classify_trip(parameters["speed_no_bike"])
-    else:
-        gps.classify_trip(parameters["speed_kid"])
+    TriplogAcc_writer_commuter(gps.trips, acc, cut_points_intensity, tripWriter)
 
-    print('Percentage of fixes at home (after trapping): ', gps.is_home.mean())
-    print('Percentage of fixes at destination (after trapping): ', gps.is_dest.mean())
+    at_night_rows = gps.findLocation(weekdays, tois['at_home_night'])
+    atNightWriter.writerows(at_night_rows)
 
-    ret_val['fraction_fixes_home'] = gps.is_home.mean()
-    ret_val['fraction_fixes_school'] = gps.is_dest.mean()
-
-
-
-    GISlog_writer_commuter2(gps, outfiles.gis_log_fname(pid))
-
-    if info['has_ACC'] in ['0', 0]:
-        Triplog_writer_commuter(gps, outfiles.trip_log_fname(pid))
-    else:
-        TriplogAcc_writer_commuter(gps, acc, cut_points_intensity, outfiles.trip_log_fname(pid))
-
-    summary_stats = commute_trip_stats(gps, acc, cut_points_intensity)
-    summaryWriter.writerow(summary_stats)
+    #if info['everbike'] == 0:
+    #    gps.classify_trip(parameters["speed_no_bike"])
+    #else:
+    #    gps.classify_trip(parameters["speed_kid"])
+    #
+    #
+    #if info['has_ACC'] in ['0', 0]:
+    #    Triplog_writer_commuter(gps, outfiles.trip_log_fname(pid))
+    #else:
+    #    TriplogAcc_writer_commuter(gps, acc, cut_points_intensity, outfiles.trip_log_fname(pid))
+    #
+    #summary_stats = commute_trip_stats(gps, acc, cut_points_intensity)
+    #summaryWriter.writerow(summary_stats)
 
 
     return ret_val 
     
-
-class Outfiles:
-    def __init__(self):
-        self.gis_log_fname_ = '../gis_log/log_{0:s}.csv'
-        self.trip_log_fname_ = '../trip_log/trip_{0:s}.csv'
-        pathlib.Path('../gis_log').mkdir(parents=False, exist_ok=True)
-        pathlib.Path('../trip_log').mkdir(parents=False, exist_ok=True)
-
-    def gis_log_fname(self, part_id):
-        return self.gis_log_fname_.format(part_id)
-    
-    def trip_log_fname(self, part_id):
-        return self.trip_log_fname_.format(part_id)
-
 
 if __name__ == '__main__':
     fname = 'STREETS_main.csv'
@@ -263,35 +261,35 @@ if __name__ == '__main__':
 
     cut_points_intensity = CutPoints.Evenson()
 
-    outfiles = Outfiles()
-
     parameters = defaultParameters()
 
     weekdays = np.ones(7)
     weekdays[5:6] = 0
-    h2s_start = datetime.time(hour=6, minute=30, second=0)
+    h2s_start = datetime.time(hour=6, minute=0, second=0)
     h2s_end = datetime.time(hour=8, minute=30, second=0)
     h2s_toi  = TimeFrameWindow(h2s_start, h2s_end, weekdays)
 
-    s2hx_start = datetime.time(hour=14, minute=30, second=0)
+    s2hx_start = datetime.time(hour=14, minute=0, second=0)
     s2hx_end = datetime.time(hour=18, minute=30, second=0)
     s2hx_toi = TimeFrameWindow(s2hx_start, s2hx_end, weekdays)
 
     at_home_start = datetime.time(hour=4, minute=30, second=0)
-    at_home_end = h2s_start
+    at_home_end = (datetime.datetime.combine(datetime.date.today(),  h2s_start) + datetime.timedelta(minutes=30)).time()
     at_home_toi = TimeFrameWindow(at_home_start, at_home_end, weekdays)
 
-    at_school_start = h2s_start
+    at_school_start = h2s_end
     at_school_end   = datetime.time(hour=10, minute=30, second=0)
     at_school_toi_am  =TimeFrameWindow(at_school_start, at_school_end, weekdays)
 
     at_school_start = datetime.time(hour=12, minute=30, second=0)
-    at_school_end = s2hx_start
+    at_school_end = (datetime.datetime.combine(datetime.date.today(),s2hx_start) +datetime.timedelta(minutes=30) ).time()
     at_school_toi_pm  =TimeFrameWindow(at_school_start, at_school_end, weekdays)
 
     tois = {"at_home_night": at_home_toi,
             "at_school_am": at_school_toi_am,
-            "at_school_pm": at_school_toi_pm}
+            "at_school_pm": at_school_toi_pm,
+            "trip_h2s": h2s_toi,
+            "trip_s2x": s2hx_toi}
 
     schools = parse_areas_of_interest(school_fname, ['school_id','y_sch','x_sch','radius_m'])
  
@@ -299,16 +297,22 @@ if __name__ == '__main__':
     reportWriter = csv.DictWriter(report_fid, fieldnames=report_keys())
     reportWriter.writeheader()
 
-    summary_fid = open('summary.csv', 'w', newline='')
-    summaryWriter = csv.DictWriter(summary_fid, fieldnames=commute_trip_stats_headers(cut_points_intensity))
-    summaryWriter.writeheader()
+    trip_fid = open('trips.csv', 'w', newline='')
+    tripWriter = csv.DictWriter(trip_fid, fieldnames=CommuteTrip.infoKeysAcc())
+    tripWriter.writeheader()
+
+    at_night_fid = open('atnight.csv', 'w', newline='')
+    atNightWriter = csv.DictWriter(at_night_fid, fieldnames=at_night_keys())
+    atNightWriter.writeheader()
 
     with open(fname, newline='') as fid:
         reader = csv.DictReader(fid)
         counter = 0
         success = 0
         for r in reader:
-            status = analyze_participant(r,  schools, tois, cut_points_intensity, parameters, outfiles, summaryWriter)
+            status = analyze_participant(r,  schools, tois,
+                                         cut_points_intensity, parameters,
+                                         tripWriter, atNightWriter)
             reportWriter.writerow(status)
             report_fid.flush()
             counter=counter+1

@@ -16,7 +16,7 @@
 #
 
 import numpy as np
-from ..gps.commuteTrip import CommuteDirection
+from ..gps.enum import TripDirection
 
 def commute_trip_stats_headers(cp):
     out = ["partid",                 # PARTICIPANT ID

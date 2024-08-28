@@ -89,12 +89,7 @@ class GeodesicDistanceGeopy:
     def compute_distance(self, lat1, lon1, lat2, lon2):
         coords1 = (lat1, lon1)
         coords2 = (lat2, lon2)
-        d = gpd.distance(coords1, coords2).meters
-
-        if(np.isnan(d)):
-            d = 0.
-            
-        return d
+        return self.compute_distance_t(coords1, coords2)
     
     def compute_distances_from_o(self, latitudes1, longitudes1, olatitude, olongitude):
         d = [self.compute_distance(lat1,lon1,olatitude, olongitude)
@@ -110,5 +105,16 @@ class GeodesicDistanceGeopy:
             d = 0.
             
         return d
+    
+    # Compute the distance along the path in meters
+    def compute_traveled_distance(self, latitudes, longitudes):
+        coords1 = (latitudes[0], longitudes[0])
+        d = 0.
+        for index in range(1, latitudes.shape[0]):
+            coords2 = (latitudes[index], longitudes[index])
+            d = d+ self.compute_distance_t(coords1, coords2)
+            coords1 = coords2
+        return d
+
     
 GeodesicDistance = GeodesicDistanceGeopy

@@ -16,31 +16,108 @@
 #
 
 import csv
+from .enum import TripDirection, GPSState
+import skimage
+import numpy as np
+
 
 trip_mode = {-1: "unknown", 0: "slow_walk", 1: "walk", 2: "bike", 3: "vehicle"}
 
-class CommuteDirection:
-    NA      = 0
-    OUTBOUND = 1
-    INBOUND = 2
-
 class CommuteTrip:
-    def __init__(self, id=None, start_index=None, last_index=None, duration=None, distance=None, isValid=None):
+    __slots__ = ['partid',
+                 'id',
+                 'start_index',
+                 'end_index',
+                 'direction',
+                 'start_datetime',
+                 'end_datetime',
+                 'start_coordinates', #(lat, lon)
+                 'end_coordinates', #(lat, lon)
+                 'duration_including_stops_in_min',
+                 'duration_excluding_stops_in_min',
+                 'number_of_stops',
+                 'total_duration_of_stops_in_min',
+                 'distance_traveled_in_km',
+                 'distance_crowflight_in_km',
+                 'speeds_excluding_stops_in_km_h'
+                 ]
+    
+    percentiles = [25, 50, 75, 90]
+    
+    def __init__(self, partid=None, id=None, start_index=None, end_index=None, direction=None):
+        self.partid = partid
         self.id = id
         self.start_index = start_index
-        self.last_index = last_index
-        self.duration = duration
-        self.distance = distance
-        self.is_valid = isValid
+        self.end_index = end_index
+        self.direction = direction
+
+    @property
+    def departedHome(self):
+        return self.direction in [TripDirection.H2D, TripDirection.H2X]
+    
+    @property
+    def arrivedHome(self):
+        return self.direction in [TripDirection.D2H, TripDirection.X2H]
+    
+    @property
+    def departedDest(self):
+        return self.direction in [TripDirection.D2H, TripDirection.D2X]
+    
+    @property
+    def arrivedDest(self):
+        return self.direction in [TripDirection.H2D, TripDirection.X2D]
+
+    def computeInfoFromGPS(self, gps_data):
+        self.start_datetime = gps_data.local_datetime[self.start_index]
+        self.end_datetime = gps_data.local_datetime[self.end_index-1]
+
+        if self.departedHome:
+            self.start_coordinates = (gps_data.home.lat, gps_data.home.lon)
+        elif self.departedDest:
+            self.start_coordinates = (gps_data.dest.lat, gps_data.dest.lon)
+        else:
+            self.start_coordinates = (gps_data.latitudes[self.start_index], gps_data.longitutes[self.start_index])
+
+        if self.arrivedHome:
+            self.end_coordinates = (gps_data.home.lat, gps_data.home.lon)
+        elif self.arrivedDest:
+            self.end_coordinates = (gps_data.dest.lat, gps_data.dest.lon)
+        else:
+            self.end_coordinates = (gps_data.latitudes[self.end_index-1], gps_data.longitutes[self.end_index-1])
+
+        self.duration_including_stops_in_min = (self.end_datetime-self.start_datetime).total_seconds()/60.0
         
-        self.radius   = None
-        self.crowdist = None
-        self.speedRMax = None
-        self.speedAvg = None
-        self.speed90p = None
+        # Extraxct local infos
+        trip_lats   = gps_data.latitudes[self.start_index:self.end_index]
+        trip_lons   = gps_data.longitudes[self.start_index:self.end_index]
+        trip_states = gps_data.state[self.start_index:self.end_index]
+        trip_speeds = gps_data.speeds[self.start_index:self.end_index]
+        trip_datetime = gps_data.local_datetime[self.start_index:self.end_index]
+
+        #COUNT NUMBER OF STOPS AND THEIR DURATION
+        stop_marker = (trip_states == GPSState.STATIONARY)
+        stops, nstops = skimage.measure.label(stop_marker, return_num=True)
+        self.number_of_stops = nstops
+        self.total_duration_of_stops_in_min = 0.
+        for istop in range(nstops):
+            istop_indexes = np.nonzero(stops==istop)[0]
+            stop_start_index = istop_indexes[0]
+            stop_end_index =  istop_indexes[-1]+1
+            stop_start = trip_datetime[stop_start_index]
+            stop_end = trip_datetime[stop_end_index]
+            stop_duration_in_minutes = (stop_end-stop_start).total_seconds()/60.
+            self.total_duration_of_stops_in_min = self.total_duration_of_stops_in_min+stop_duration_in_minutes
+
         
-        self.type = None
-        
+        self.duration_excluding_stops_in_min = self.duration_including_stops_in_min - self.total_duration_of_stops_in_min
+
+        # Compute distance traveled
+        self.distance_traveled_in_km = gps_data.g.compute_traveled_distance(trip_lats, trip_lons)*1e-3
+        self.distance_crowflight_in_km = gps_data.g.compute_distance_t(self.start_coordinates, self.end_coordinates)*1e-3
+
+        self.speeds_excluding_stops_in_km_h = trip_speeds[trip_states==GPSState.MOTION]
+
+      
     def classify(self, parameters):
         if self.speedAvg < parameters["walk"][0] and self.speedRMax < parameters["walk"][1]:
             self.type = "walk"
@@ -50,112 +127,63 @@ class CommuteTrip:
             self.type = "vehicle"
         else:
             self.type = "unknown"
-            
-    def departedHome(self, data):
-        return data.is_home[self.start_index]
-    
-    def arrivedHome(self, data):
-        return data.is_home[self.last_index]
-        
-    def departedDest(self, data):
-        return data.is_dest[self.start_index]
-    
-    def arrivedDest(self, data):
-        return data.is_dest[self.last_index]
-        
-    def isInbound(self, data):
-        return data.is_dest[self.start_index] * data.is_home[self.last_index]
-    
-    def isOutbound(self, data):
-        return data.is_home[self.start_index] * data.is_dest[self.last_index]
-    
-    def Outbound_Inbound(self, data):
-        if self.isOutbound(data):
-            return CommuteDirection.OUTBOUND
-        elif self.isInbound(data):
-            return CommuteDirection.INBOUND
-        else:
-            return CommuteDirection.NA
+                
 
-    
-    def isCommute(self, data):
-        if self.Outbound_Inbound(data) == 0:
-            return 0
-        else:
-            return 1
-
-        
     def showMe(self):
         print("Start index", self.start_index)
-        print("Last index", self.last_index)
-        print("Duration", self.duration)
-        print("Distance", self.distance)
-        print("Radius", self.radius)
-        print("Crow distance", self.crowdist)
-        print("Speed 90p", self.speed90p)
-        print("Trip type", self.type)
-        print("Trip is valid", self.is_valid)
+        print("Last index", self.end_index)
+        print("direction", self.direction)
+        print("duration including stops [minutes]", self.duration_including_stops_in_min)
+        print("Traveled distance km", self.distance_traveled_in_km)
+        print("Crowflight distance km", self.distance_crowflight_in_km)
+
         
-    def getInfo(self, data):
+    def getInfo(self):
         """
         data --> GPSData
         out --> Dictionary
         """
         out = {}
         
-        out["partid"] = data.id
+        out["partid"] = self.partid
         out["tripid"] = self.id+1
-        out['trip_is_valid'] = self.is_valid
-        out['trip_is_commute'] = self.isCommute(data)
-        out['Outbound_inbound'] = self.Outbound_Inbound(data)
+        out["unique_id"] = self.partid + "_{0:03d}".format(self.id+1)
+        out['trip_direction'] = self.direction
 
-        
-        out["trip_start_date"]      = data.local_datetime[self.start_index].strftime('%Y-%m-%d')
-        out["trip_start_time"]      = data.local_datetime[self.start_index].strftime('%H:%M:%S')
-        if self.departedHome(data):
-            out['departed_home']        = 1
-            out["trip_start_lat"]       = data.home.lat
-            out["trip_start_lon"]       = data.home.lon
-        elif self.departedDest(data):
-            out['departed_dest']        = 1
-            out["trip_start_lat"]       = data.dest.lat
-            out["trip_start_lon"]       = data.dest.lon
-        else:
-            out["trip_start_lat"]       = data.latitudes[self.start_index]
-            out["trip_start_lon"]       = data.longitudes[self.start_index]
-        out["trip_end_date"]        = data.local_datetime[self.last_index].strftime('%Y-%m-%d')
-        out["trip_end_time"]        = data.local_datetime[self.last_index].strftime('%H:%M:%S')
-        if self.arrivedHome(data):
-            out['arrived_home']         = 1
-            out["trip_end_lat"]         = data.home.lat
-            out["trip_end_lon"]         = data.home.lon
-        elif self.arrivedDest(data):
-            out['departed_dest']        = 1
-            out["trip_end_lat"]         = data.dest.lat
-            out["trip_end_lon"]         = data.dest.lon
-        else:
-            out["trip_end_lat"]         = data.latitudes[self.last_index]
-            out["trip_end_lon"]         = data.longitudes[self.last_index]
+        out["trip_start_date"] = self.start_datetime.strftime('%Y-%m-%d')
+        out["trip_start_time"] = self.start_datetime.strftime('%H:%M:%S')
+        out["trip_end_date"]   = self.end_datetime.strftime('%Y-%m-%d')
+        out["trip_end_time"]   = self.end_datetime.strftime('%H:%M:%S')
 
-        out["trip_duration"]        = self.duration/60.0      #Minutes
-        out["trip_dist_traveled"]   = self.distance*1.e-3     #Km
-        out["trip_dist_crowflight"] = self.crowdist*1.e-3     #Km
-        out["trip_90p_speed"]       = self.speed90p           #Km/h
-        out["trip_average_speed"]   = self.speedAvg           #Km/h
-        out["trip_type"]            = self.type
+        out['departed_home'] = self.departedHome
+        out['departed_dest'] = self.departedDest
+        out['arrived_home']  = self.arrivedHome
+        out['arrived_dest']  = self.arrivedDest
+
+        out["trip_start_lat"] = self.start_coordinates[0]
+        out["trip_start_lon"] = self.start_coordinates[1]
+        out["trip_end_lat"]   = self.end_coordinates[0]
+        out["trip_end_lon"]   = self.end_coordinates[1]
+
+        out["trip_duration_including_stops"] = self.duration_including_stops_in_min
+        out["trip_duration_excluding_stops"] = self.duration_excluding_stops_in_min
+        out["trip_dist_traveled"]   = self.distance_traveled_in_km
+        out["trip_dist_crowflight"] = self.distance_crowflight_in_km
+        speed_percentiles = np.percentile(self.speeds_excluding_stops_in_km_h, self.percentiles)
+        for i, p in enumerate(self.percentiles):
+            out["trip_{0:d}p_speed".format(p)]  = speed_percentiles[i]
+        out["trip_average_speed"]   = np.mean(self.speeds_excluding_stops_in_km_h)
             
         return out
     
-    def getCountsStats(self, gpsData, accData):
-        time_interval = [gpsData.local_datetime[self.start_index],
-                         gpsData.local_datetime[self.last_index]]
+    def getCountsStats(self, accData):
+        time_interval = [self.start_datetime, self.end_datetime]
         return accData.getCountsStatsInterval(time_interval)
 
     
-    def getAccInfo(self, gpsData, accData, cp):
+    def getAccInfo(self, accData, cp):
         out = {}
-        time_interval = [gpsData.local_datetime[self.start_index],
-                         gpsData.local_datetime[self.last_index]]
+        time_interval = [self.start_datetime, self.end_datetime]
         tot, avg, perc = accData.getCountsStatsInterval(time_interval)
         out['trip_acc_counts_total']   = tot
         out['trip_acc_avg_counts_min'] = avg
@@ -172,31 +200,34 @@ class CommuteTrip:
         
     @classmethod
     def infoKeys(cls):
-        return [
-                "partid",                 #Participant ID
-                "tripid",                 #Trip ID
-                "trip_is_valid",
-                'trip_is_commute',
-                'Outbound_inbound',
-                'departed_home',
-                'arrived_home',
+        keys =  [
+                "partid",          # Participant ID
+                "tripid",          # Trip ID
+                "unique_id",       # ParticipantID_TripID
+                'trip_direction',  # 0=X2X, etc
+                "trip_start_date", # format '%Y-%m-%d'
+                "trip_start_time", # format '%H:%M:%S'
+                "trip_end_date",   # format '%Y-%m-%d'
+                "trip_end_time",   # format '%H:%M:%S'
+                'departed_home', 
                 'departed_dest',
+                'arrived_home',
                 'arrived_dest',
-                "trip_start_date",        #Trip Start date (YYYY-MM-DD)
-                "trip_start_time",        #Trip Start time (HH:MM:SS)
-                "trip_start_lat",         #Trip Start latitude (N: positive, S: negative)
-                "trip_start_lon",         #Trip Start longitudine (W: positive, E: negative)
-                "trip_end_date",          #Trip End date (YYYY-MM-DD)
-                "trip_end_time",          #Trip End time (HH:MM:SS)
-                "trip_end_lat",           #Trip End latitude (N: positive, S: negative)
-                "trip_end_lon",           #Trip End longitudine (W: positive, E: negative)
-                "trip_duration",          #Trip duration (minutes)
-                "trip_dist_traveled",     #Distance traveled for this trip (Km)
-                "trip_dist_crowflight",   #Crowflight distance between origin and destistantion (Km)
-                "trip_90p_speed",         # Robust max speed (km/h)
-                "trip_average_speed",     # Average speed
-                "trip_type"               # Trip type: Walk, Bike, Vehicle
-                ]
+                "trip_start_lat", #Trip Start latitude (N: positive, S: negative)
+                "trip_start_lon", #Trip Start longitudine (W: positive, E: negative)
+                "trip_end_lat", #Trip End latitude (N: positive, S: negative)
+                "trip_end_lon", #Trip End longitudine (W: positive, E: negative)
+                "trip_duration_including_stops", # Trip duration in minutes
+                "trip_duration_excluding_stops", # Trip duration in minutes
+                "trip_dist_traveled", #Distance traveled in km
+                "trip_dist_crowflight", #Distance crowflight in km
+            ]
+        
+        for p in cls.percentiles:
+            keys.append("trip_{0:d}p_speed".format(p))
+        keys.append("trip_average_speed")
+
+        return keys
     
     @classmethod
     def infoKeysAcc(cls):
@@ -216,24 +247,14 @@ class CommuteTrip:
         return out
         
     
-def Triplog_writer_commuter(gpsData, fname_out):
-    fieldnames = CommuteTrip.infoKeys()
-        
-    with open(fname_out, "w", newline='') as fid:
-        writer = csv.DictWriter(fid, fieldnames)
-        writer.writeheader()
-        for trip in gpsData.trips:
-            data = trip.getInfo(gpsData)
-            writer.writerow(data)
+def Triplog_writer_commuter(trips, writer):
+    for trip in trips:
+        data = trip.getInfo()
+        writer.writerow(data)
 
-def TriplogAcc_writer_commuter(gpsData, accData, activities_cp, fname_out):
-    fieldnames = CommuteTrip.infoKeysAcc()
-        
-    with open(fname_out, "w", newline='') as fid:
-        writer = csv.DictWriter(fid, fieldnames)
-        writer.writeheader()
-        for trip in gpsData.trips:
-            info = trip.getInfo(gpsData)
-            info_acc = trip.getAccInfo(gpsData, accData,  activities_cp)
-            info.update(info_acc)
-            writer.writerow(info)
+def TriplogAcc_writer_commuter(trips, accData, activities_cp, writer):
+    for trip in trips:
+        info = trip.getInfo()
+        info_acc = trip.getAccInfo(accData,  activities_cp)
+        info.update(info_acc)
+        writer.writerow(info)

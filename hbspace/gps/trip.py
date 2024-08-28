@@ -15,7 +15,9 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
+
 trip_mode = {-1: "unknown", 0: "slow_walk", 1: "walk", 2: "bike", 3: "vehicle"}
+
 
 class Trip:
     def __init__(self, id=None, start_index=None, end_index=None, duration=None, distance=None, isValid=None):

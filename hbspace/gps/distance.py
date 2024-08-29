@@ -115,6 +115,18 @@ class GeodesicDistanceGeopy:
             d = d+ self.compute_distance_t(coords1, coords2)
             coords1 = coords2
         return d
+    
+    def compute_radius(self, latitudes, longitudes):
+        start_coord = (latitudes[0], longitudes[0])
+        end_coord   = (latitudes[-1], longitudes[-1])
+        d = self.compute_distance_t(start_coord, end_coord)
+        for index in range(1, latitudes.shape[0]-1):
+            this_coord = (latitudes[index], longitudes[index])
+            d_start = self.compute_distance_t(start_coord, this_coord)
+            d_end   = self.compute_distance_t(end_coord, this_coord)
+            d = np.max([d, d_start, d_end])
+
+        return d
 
     
 GeodesicDistance = GeodesicDistanceGeopy

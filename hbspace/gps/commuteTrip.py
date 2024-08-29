@@ -41,6 +41,7 @@ class CommuteTrip:
                  'total_duration_of_pauses_in_min',
                  'distance_traveled_in_km',
                  'distance_crowflight_in_km',
+                 'radius_in_km',
                  'speeds_excluding_stops_in_km_h'
                  ]
     
@@ -132,6 +133,7 @@ class CommuteTrip:
         # Compute distance traveled
         self.distance_traveled_in_km = gps_data.g.compute_traveled_distance(trip_lats, trip_lons)*1e-3
         self.distance_crowflight_in_km = gps_data.g.compute_distance_t(self.start_coordinates, self.end_coordinates)*1e-3
+        self.radius_in_km = gps_data.g.compute_radius( trip_lats, trip_lons)*1e-3
 
         self.speeds_excluding_stops_in_km_h = trip_speeds[trip_states==GPSState.MOTION]
 
@@ -191,6 +193,7 @@ class CommuteTrip:
         out["trip_number_of_pauses"] = self.number_of_pauses
         out["trip_dist_traveled"]   = self.distance_traveled_in_km
         out["trip_dist_crowflight"] = self.distance_crowflight_in_km
+        out["trip_radius"]          = self.radius_in_km
         speed_percentiles = np.percentile(self.speeds_excluding_stops_in_km_h, self.percentiles)
         for i, p in enumerate(self.percentiles):
             out["trip_{0:d}p_speed".format(p)]  = speed_percentiles[i]
@@ -247,6 +250,7 @@ class CommuteTrip:
                 "trip_number_of_pauses",
                 "trip_dist_traveled", #Distance traveled in km
                 "trip_dist_crowflight", #Distance crowflight in km
+                "trip_radius"
             ]
         
         for p in cls.percentiles:

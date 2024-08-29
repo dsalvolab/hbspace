@@ -266,14 +266,24 @@ class CommuteGPSData:
         print("Last fix at home: ", self.local_datetime[trip_start_index])
         print("First fix at school:  ", self.local_datetime[trip_last_index])
         assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
-        # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE)
+        # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE) up to 2 minutes
+        original_time = self.local_datetime[trip_start_index]
         while self.state[trip_start_index] != GPSState.STATIONARY and trip_start_index > 0:
             trip_start_index = trip_start_index - 1
+            new_time = self.local_datetime[trip_start_index]
+            if (original_time - new_time).total_seconds() > 120:
+                trip_start_index = trip_start_index + 1
+                break
         while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
             trip_start_index = trip_start_index + 1
 
+        original_time = self.local_datetime[trip_last_index]
         while self.state[trip_last_index] != GPSState.STATIONARY and trip_last_index < (self.state.shape[0]-1):
             trip_last_index = trip_last_index + 1
+            new_time = self.local_datetime[trip_last_index]
+            if(new_time - original_time).total_seconds() > 120:
+                 trip_last_index = trip_last_index - 1
+                 break
         while self.state[trip_last_index] == GPSState.STATIONARY and trip_last_index > 0:
             trip_last_index = trip_last_index - 1
 
@@ -329,9 +339,14 @@ class CommuteGPSData:
         trip_start_index = is_dest_in_window_indexes[-1]
         print("Last fix at school: ", self.local_datetime[trip_start_index])
 
-        # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE)
+        # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE) up to 2 minutes
+        original_time = self.local_datetime[trip_start_index]
         while self.state[trip_start_index] != GPSState.STATIONARY and trip_start_index > 0:
             trip_start_index = trip_start_index - 1
+            new_time = self.local_datetime[trip_start_index]
+            if (original_time-new_time).total_seconds() > 120:
+                trip_start_index = trip_start_index + 1
+                break
         while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
             trip_start_index = trip_start_index + 1
 

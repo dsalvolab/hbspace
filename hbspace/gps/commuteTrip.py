@@ -44,7 +44,7 @@ class CommuteTrip:
                  'speeds_excluding_stops_in_km_h'
                  ]
     
-    percentiles = [10, 25, 50, 75, 90]
+    percentiles = [0, 10, 25, 50, 75, 90, 100]
     
     def __init__(self, partid=None, id=None, start_index=None, end_index=None, direction=None):
         self.partid = partid

@@ -198,10 +198,14 @@ class CommuteGPSData:
             print("You must call self.detect_motion first")
             raise
 
+        trip_count = 0
         for d in days:
             trip =  self._find_home2dest_trip(d, tois)
             if trip:
                 self.trips.append(trip)
+                trip_count = trip_count+1
+
+        return trip_count
 
     def find_dest2x_trips(self, days, tois):
 
@@ -209,10 +213,14 @@ class CommuteGPSData:
             print("You must call self.detect_motion first")
             raise
 
+        trip_count = 0
         for d in days:
             trip =  self._find_dest2x_trip(d, tois)
             if trip:
                 self.trips.append(trip)
+                trip_count = trip_count+1
+
+        return trip_count
 
     def _find_home2dest_trip(self, day, tois):
         # Step 1: Check the rules to determine if a trip should exists
@@ -237,6 +245,8 @@ class CommuteGPSData:
         # Step 2: A trip should exists. Select when the window to find a trip starts and ends.
         
         tripwindow_day_indexes = tois['trip_h2s'].get_indexes(day_local_dt)
+        if np.any(tripwindow_day_indexes) == False:
+            return None
         trip_window_starts = np.min( day_local_dt[tripwindow_day_indexes] )
         trip_window_ends   = np.max( day_local_dt[tripwindow_day_indexes] )
         print("Searching for h2s trip in time window: ", trip_window_starts, " ", trip_window_ends)
@@ -245,18 +255,24 @@ class CommuteGPSData:
         trip_window_indexes = np.logical_and(self.local_datetime >= trip_window_starts, 
                                              self.local_datetime <= trip_window_ends).astype(int)
         # Find the last fix home and first fix at school within the window
-        trip_start_index = np.nonzero(self.is_home*trip_window_indexes)[0][-1]
-        trip_last_index = np.nonzero(self.is_dest*trip_window_indexes)[0][0]
+        is_home_in_window_indexes = np.nonzero(self.is_home*trip_window_indexes)[0]
+        if is_home_in_window_indexes.shape[0] == 0:
+            return None
+        trip_start_index = is_home_in_window_indexes[-1]
+        is_dest_in_window_indexes = np.nonzero(self.is_dest*trip_window_indexes)[0]
+        if is_dest_in_window_indexes.shape[0]==0:
+            return None
+        trip_last_index = is_dest_in_window_indexes[0]
         print("Last fix at home: ", self.local_datetime[trip_start_index])
         print("First fix at school:  ", self.local_datetime[trip_last_index])
         assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
         # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE)
-        while self.state[trip_start_index] == GPSState.MOTION and trip_start_index > 0:
+        while self.state[trip_start_index] != GPSState.STATIONARY and trip_start_index > 0:
             trip_start_index = trip_start_index - 1
         while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
             trip_start_index = trip_start_index + 1
 
-        while self.state[trip_last_index] == GPSState.MOTION and trip_last_index < (self.state.shape[0]-1):
+        while self.state[trip_last_index] != GPSState.STATIONARY and trip_last_index < (self.state.shape[0]-1):
             trip_last_index = trip_last_index + 1
         while self.state[trip_last_index] == GPSState.STATIONARY and trip_last_index > 0:
             trip_last_index = trip_last_index - 1
@@ -267,12 +283,12 @@ class CommuteGPSData:
                                               self.local_datetime[trip_last_index])
         assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
 
-        self.tripCounter = self.tripCounter+1
         trip = CommuteTrip(partid = self.id,
                            id=self.tripCounter, start_index=trip_start_index,
                            end_index=trip_end_index, direction=TripDirection.H2D)
         
         trip.computeInfoFromGPS(self)
+        self.tripCounter = self.tripCounter+1
 
         return trip
     
@@ -297,6 +313,8 @@ class CommuteGPSData:
         # Step 2: A trip should exists. Select when the window to find a trip starts and ends.
         
         tripwindow_day_indexes = tois['trip_s2x'].get_indexes(day_local_dt)
+        if np.any(tripwindow_day_indexes) == False:
+            return None
         trip_window_starts = np.min( day_local_dt[tripwindow_day_indexes] )
         trip_window_ends   = np.max( day_local_dt[tripwindow_day_indexes] )
         print("Searching for s2x trip in time window: ", trip_window_starts, " ", trip_window_ends)
@@ -304,24 +322,28 @@ class CommuteGPSData:
         # Step 3: this are the indexes of the trip window
         trip_window_indexes = np.logical_and(self.local_datetime >= trip_window_starts, 
                                              self.local_datetime <= trip_window_ends).astype(int)
-        # Find the last fix school 
-        trip_start_index = np.nonzero(self.is_dest*trip_window_indexes)[0][-1]
+        # Find the last fix school
+        is_dest_in_window_indexes = np.nonzero(self.is_dest*trip_window_indexes)[0]
+        if is_dest_in_window_indexes.shape[0] == 0:
+            return None
+        trip_start_index = is_dest_in_window_indexes[-1]
         print("Last fix at school: ", self.local_datetime[trip_start_index])
 
         # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE)
-        while self.state[trip_start_index] == GPSState.MOTION and trip_start_index > 0:
+        while self.state[trip_start_index] != GPSState.STATIONARY and trip_start_index > 0:
             trip_start_index = trip_start_index - 1
         while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
             trip_start_index = trip_start_index + 1
 
-        trip_last_index = trip_start_index + 1
-        while self.state[trip_last_index] == GPSState.MOTION and trip_last_index < (self.state.shape[0]-1):
+        trip_last_index = trip_start_index
+        while self.state[trip_last_index+1] != GPSState.STATIONARY and trip_last_index < (self.state.shape[0]-2):
             trip_last_index = trip_last_index + 1
         trip_end_index = trip_last_index + 1
 
-        print("h2x trip detected between: ", self.local_datetime[trip_start_index],
+        print("d2x trip detected between: ", self.local_datetime[trip_start_index],
                                              " and ", 
                                               self.local_datetime[trip_last_index])
+        print("Number of fixes in trip: ", trip_end_index-trip_start_index)
         assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
 
         trip_direction = TripDirection.D2X

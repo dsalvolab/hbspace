@@ -26,7 +26,8 @@ def report_keys():
     return ['part_id', 'status', 'home2school_distance',
             'days', 'weekdays',
             'fraction_fixes_home', 'fraction_fixes_school',
-            'estimated_h2s_trips', 'estimated_s2x_trips']
+            'estimated_h2s_trips', 'estimated_s2x_trips',
+            'actual_h2s_trips', 'actual_s2x_trips']
 
 def at_night_keys():
     return ['part_id', 
@@ -228,8 +229,8 @@ def analyze_participant(info, schools,
     ret_val['estimated_s2x_trips'] = estimated_number_of_trips[1]
 
     print('Estimated number of trips: h2s = {0}, s2x = {1}'.format(estimated_number_of_trips[0], estimated_number_of_trips[1]))
-    gps.find_home2dest_trips(weekdays, tois)
-    gps.find_dest2x_trips(weekdays, tois)
+    ret_val['actual_h2s_trips'] = gps.find_home2dest_trips(weekdays, tois)
+    ret_val['actual_s2x_trips'] = gps.find_dest2x_trips(weekdays, tois)
 
     TriplogAcc_writer_commuter(gps.trips, acc, cut_points_intensity, tripWriter)
 

@@ -37,12 +37,14 @@ class CommuteTrip:
                  'duration_excluding_stops_in_min',
                  'number_of_stops',
                  'total_duration_of_stops_in_min',
+                 'number_of_pauses',
+                 'total_duration_of_pauses_in_min',
                  'distance_traveled_in_km',
                  'distance_crowflight_in_km',
                  'speeds_excluding_stops_in_km_h'
                  ]
     
-    percentiles = [25, 50, 75, 90]
+    percentiles = [10, 25, 50, 75, 90]
     
     def __init__(self, partid=None, id=None, start_index=None, end_index=None, direction=None):
         self.partid = partid
@@ -83,7 +85,7 @@ class CommuteTrip:
         elif self.arrivedDest:
             self.end_coordinates = (gps_data.dest.lat, gps_data.dest.lon)
         else:
-            self.end_coordinates = (gps_data.latitudes[self.end_index-1], gps_data.longitutes[self.end_index-1])
+            self.end_coordinates = (gps_data.latitudes[self.end_index-1], gps_data.longitudes[self.end_index-1])
 
         self.duration_including_stops_in_min = (self.end_datetime-self.start_datetime).total_seconds()/60.0
         
@@ -99,7 +101,7 @@ class CommuteTrip:
         stops, nstops = skimage.measure.label(stop_marker, return_num=True)
         self.number_of_stops = nstops
         self.total_duration_of_stops_in_min = 0.
-        for istop in range(nstops):
+        for istop in range(1,nstops+1):
             istop_indexes = np.nonzero(stops==istop)[0]
             stop_start_index = istop_indexes[0]
             stop_end_index =  istop_indexes[-1]+1
@@ -108,8 +110,24 @@ class CommuteTrip:
             stop_duration_in_minutes = (stop_end-stop_start).total_seconds()/60.
             self.total_duration_of_stops_in_min = self.total_duration_of_stops_in_min+stop_duration_in_minutes
 
-        
+        del stop_marker, stops, nstops
+
         self.duration_excluding_stops_in_min = self.duration_including_stops_in_min - self.total_duration_of_stops_in_min
+
+        #COUNT NUMBER OF PAUSES AND THEIR DURATION
+        pause_marker = (trip_states == GPSState.PAUSE)
+        pauses, npauses = skimage.measure.label(pause_marker, return_num=True)
+        self.number_of_pauses = npauses
+        self.total_duration_of_pauses_in_min = 0.
+        for ipause in range(1,npauses+1):
+            ipause_indexes = np.nonzero(pauses==ipause)[0]
+            pause_start_index = ipause_indexes[0]
+            pause_end_index =  ipause_indexes[-1]+1
+            pause_start = trip_datetime[pause_start_index]
+            pause_end = trip_datetime[pause_end_index]
+            pause_duration_in_minutes = (pause_end-pause_start).total_seconds()/60.
+            self.total_duration_of_pauses_in_min = self.total_duration_of_pauses_in_min+pause_duration_in_minutes
+
 
         # Compute distance traveled
         self.distance_traveled_in_km = gps_data.g.compute_traveled_distance(trip_lats, trip_lons)*1e-3
@@ -167,6 +185,10 @@ class CommuteTrip:
 
         out["trip_duration_including_stops"] = self.duration_including_stops_in_min
         out["trip_duration_excluding_stops"] = self.duration_excluding_stops_in_min
+        out["trip_total_duration_of_stops"] = self.total_duration_of_stops_in_min
+        out["trip_total_duration_of_pauses"] = self.total_duration_of_pauses_in_min
+        out["trip_number_of_stops"] = self.number_of_stops
+        out["trip_number_of_pauses"] = self.number_of_pauses
         out["trip_dist_traveled"]   = self.distance_traveled_in_km
         out["trip_dist_crowflight"] = self.distance_crowflight_in_km
         speed_percentiles = np.percentile(self.speeds_excluding_stops_in_km_h, self.percentiles)
@@ -219,6 +241,10 @@ class CommuteTrip:
                 "trip_end_lon", #Trip End longitudine (W: positive, E: negative)
                 "trip_duration_including_stops", # Trip duration in minutes
                 "trip_duration_excluding_stops", # Trip duration in minutes
+                "trip_total_duration_of_stops",
+                "trip_total_duration_of_pauses",
+                "trip_number_of_stops",
+                "trip_number_of_pauses",
                 "trip_dist_traveled", #Distance traveled in km
                 "trip_dist_crowflight", #Distance crowflight in km
             ]

@@ -34,7 +34,7 @@ class CommuteTrip:
                  'start_coordinates', #(lat, lon)
                  'end_coordinates', #(lat, lon)
                  'duration_including_stops_in_min',
-                 'duration_excluding_stops_in_min',
+                 'duration_of_motion_in_min',
                  'number_of_stops',
                  'total_duration_of_stops_in_min',
                  'number_of_pauses',
@@ -42,7 +42,7 @@ class CommuteTrip:
                  'distance_traveled_in_km',
                  'distance_crowflight_in_km',
                  'radius_in_km',
-                 'speeds_excluding_stops_in_km_h'
+                 'speeds_motion_only_in_km_h'
                  ]
     
     percentiles = [0, 10, 25, 50, 75, 90, 100]
@@ -113,8 +113,6 @@ class CommuteTrip:
 
         del stop_marker, stops, nstops
 
-        self.duration_excluding_stops_in_min = self.duration_including_stops_in_min - self.total_duration_of_stops_in_min
-
         #COUNT NUMBER OF PAUSES AND THEIR DURATION
         pause_marker = (trip_states == GPSState.PAUSE)
         pauses, npauses = skimage.measure.label(pause_marker, return_num=True)
@@ -129,13 +127,15 @@ class CommuteTrip:
             pause_duration_in_minutes = (pause_end-pause_start).total_seconds()/60.
             self.total_duration_of_pauses_in_min = self.total_duration_of_pauses_in_min+pause_duration_in_minutes
 
-
+        self.duration_of_motion_in_min = (self.duration_including_stops_in_min
+                                          - self.total_duration_of_stops_in_min
+                                          - self.total_duration_of_pauses_in_min)
         # Compute distance traveled
         self.distance_traveled_in_km = gps_data.g.compute_traveled_distance(trip_lats, trip_lons)*1e-3
         self.distance_crowflight_in_km = gps_data.g.compute_distance_t(self.start_coordinates, self.end_coordinates)*1e-3
         self.radius_in_km = gps_data.g.compute_radius( trip_lats, trip_lons)*1e-3
 
-        self.speeds_excluding_stops_in_km_h = trip_speeds[trip_states==GPSState.MOTION]
+        self.speeds_motion_only_in_km_h = trip_speeds[trip_states==GPSState.MOTION]
 
       
     def classify(self, parameters):
@@ -186,7 +186,7 @@ class CommuteTrip:
         out["trip_end_lon"]   = self.end_coordinates[1]
 
         out["trip_duration_including_stops"] = self.duration_including_stops_in_min
-        out["trip_duration_excluding_stops"] = self.duration_excluding_stops_in_min
+        out["trip_duration_motion"] = self.duration_of_motion_in_min
         out["trip_total_duration_of_stops"] = self.total_duration_of_stops_in_min
         out["trip_total_duration_of_pauses"] = self.total_duration_of_pauses_in_min
         out["trip_number_of_stops"] = self.number_of_stops
@@ -194,10 +194,10 @@ class CommuteTrip:
         out["trip_dist_traveled"]   = self.distance_traveled_in_km
         out["trip_dist_crowflight"] = self.distance_crowflight_in_km
         out["trip_radius"]          = self.radius_in_km
-        speed_percentiles = np.percentile(self.speeds_excluding_stops_in_km_h, self.percentiles)
+        speed_percentiles = np.percentile(self.speeds_motion_only_in_km_h, self.percentiles)
         for i, p in enumerate(self.percentiles):
             out["trip_{0:d}p_speed".format(p)]  = speed_percentiles[i]
-        out["trip_average_speed"]   = np.mean(self.speeds_excluding_stops_in_km_h)
+        out["trip_average_speed"]   = np.mean(self.speeds_motion_only_in_km_h)
             
         return out
     
@@ -243,7 +243,7 @@ class CommuteTrip:
                 "trip_end_lat", #Trip End latitude (N: positive, S: negative)
                 "trip_end_lon", #Trip End longitudine (W: positive, E: negative)
                 "trip_duration_including_stops", # Trip duration in minutes
-                "trip_duration_excluding_stops", # Trip duration in minutes
+                "trip_duration_motion", # Trip duration in minutes
                 "trip_total_duration_of_stops",
                 "trip_total_duration_of_pauses",
                 "trip_number_of_stops",

@@ -268,24 +268,34 @@ class CommuteGPSData:
         assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
         # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE) up to 2 minutes
         original_time = self.local_datetime[trip_start_index]
-        while self.state[trip_start_index] != GPSState.STATIONARY and trip_start_index > 0:
-            trip_start_index = trip_start_index - 1
-            new_time = self.local_datetime[trip_start_index]
+        self.state[trip_start_index] = GPSState.MOTION
+        while self.state[trip_start_index-1] != GPSState.STATIONARY:
+            new_time = self.local_datetime[trip_start_index-1]
+            assert (original_time - new_time).total_seconds() >= 0.
             if (original_time - new_time).total_seconds() > 120:
-                trip_start_index = trip_start_index + 1
                 break
-        while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
+            trip_start_index = trip_start_index - 1
+            if trip_start_index == 0:
+                break
+        while self.state[trip_start_index+1] != GPSState.MOTION: 
             trip_start_index = trip_start_index + 1
+            if trip_start_index == self.state.shape[0]-1:
+                break
 
         original_time = self.local_datetime[trip_last_index]
-        while self.state[trip_last_index] != GPSState.STATIONARY and trip_last_index < (self.state.shape[0]-1):
-            trip_last_index = trip_last_index + 1
-            new_time = self.local_datetime[trip_last_index]
+        while self.state[trip_last_index+1] != GPSState.STATIONARY:
+            new_time = self.local_datetime[trip_last_index+1]
+            assert (new_time - original_time).total_seconds() >= 0.
             if(new_time - original_time).total_seconds() > 120:
-                 trip_last_index = trip_last_index - 1
+                break
+            trip_last_index = trip_last_index + 1
+            if trip_last_index == self.state.shape[0]-1:
                  break
-        while self.state[trip_last_index] == GPSState.STATIONARY and trip_last_index > 0:
+            
+        while self.state[trip_last_index] != GPSState.MOTION:
             trip_last_index = trip_last_index - 1
+            if trip_last_index == 0:
+                break
 
         trip_end_index = trip_last_index+1
         print("h2s trip detected between: ", self.local_datetime[trip_start_index],
@@ -341,18 +351,32 @@ class CommuteGPSData:
 
         # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE) up to 2 minutes
         original_time = self.local_datetime[trip_start_index]
-        while self.state[trip_start_index] != GPSState.STATIONARY and trip_start_index > 0:
-            trip_start_index = trip_start_index - 1
-            new_time = self.local_datetime[trip_start_index]
-            if (original_time-new_time).total_seconds() > 120:
-                trip_start_index = trip_start_index + 1
+        self.state[trip_start_index] = GPSState.MOTION
+        while self.state[trip_start_index-1] != GPSState.STATIONARY:
+            new_time = self.local_datetime[trip_start_index-1]
+            assert (original_time - new_time).total_seconds() >= 0.
+            if (original_time - new_time).total_seconds() > 120:
                 break
-        while self.state[trip_start_index] == GPSState.STATIONARY and trip_start_index < (self.state.shape[0]-1):
+            trip_start_index = trip_start_index - 1
+            if trip_start_index == 0:
+                break
+        while self.state[trip_start_index+1] != GPSState.MOTION: 
             trip_start_index = trip_start_index + 1
+            if trip_start_index == self.state.shape[0]-1:
+                break
+
+        if trip_start_index == self.state.shape[0]-1:
+            return None
 
         trip_last_index = trip_start_index
-        while self.state[trip_last_index+1] != GPSState.STATIONARY and trip_last_index < (self.state.shape[0]-2):
+        while self.state[trip_last_index+1] != GPSState.STATIONARY:
             trip_last_index = trip_last_index + 1
+            if trip_last_index == self.state.shape[0]-1:
+                break
+        while self.state[trip_last_index] != GPSState.MOTION:
+            trip_last_index = trip_last_index - 1
+            if trip_last_index == 0:
+                break
         trip_end_index = trip_last_index + 1
 
         print("d2x trip detected between: ", self.local_datetime[trip_start_index],

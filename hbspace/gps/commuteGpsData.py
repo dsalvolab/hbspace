@@ -55,6 +55,9 @@ class CommuteGPSData:
 
         self.tripCounter             = 0    
         self.trips = []
+
+        self.trip_marker = None
+        self.trip_direction = None
         
         self.is_home = None
         self.is_dest = None
@@ -66,7 +69,12 @@ class CommuteGPSData:
         self.logging = False
         
         
-    def compute_dist(self):        
+    def compute_dist(self): 
+
+        self.trip_marker = np.zeros_like(self.utc_timestamps)
+        self.trip_direction = - np.ones_like(self.utc_timestamps, dtype=int)
+
+
         self.speeds      = np.zeros_like(self.utc_timestamps)
         self.cumdist     = np.zeros_like(self.utc_timestamps)
         
@@ -204,6 +212,8 @@ class CommuteGPSData:
             if trip:
                 self.trips.append(trip)
                 trip_count = trip_count+1
+                self.trip_marker[trip.start_index:trip.end_index] = trip.id+1
+                self.trip_direction[trip.start_index:trip.end_index] = trip.direction
 
         return trip_count
 
@@ -219,6 +229,8 @@ class CommuteGPSData:
             if trip:
                 self.trips.append(trip)
                 trip_count = trip_count+1
+                self.trip_marker[trip.start_index:trip.end_index] = trip.id+1
+                self.trip_direction[trip.start_index:trip.end_index] = trip.direction
 
         return trip_count
 
@@ -265,7 +277,11 @@ class CommuteGPSData:
         trip_last_index = is_dest_in_window_indexes[0]
         print("Last fix at home: ", self.local_datetime[trip_start_index])
         print("First fix at school:  ", self.local_datetime[trip_last_index])
-        assert self.local_datetime[trip_start_index] < self.local_datetime[trip_last_index]
+        if self.local_datetime[trip_start_index] >= self.local_datetime[trip_last_index]:
+            print("Something odd happen: GPS is home after getting to school")
+            print("Last at home index: ", trip_start_index)
+            print("First at school index: ", trip_last_index)
+            return None
         # Extend the window based on the state (MOTION vs STATIONARY vs PAUSE) up to 2 minutes
         original_time = self.local_datetime[trip_start_index]
         self.state[trip_start_index] = GPSState.MOTION

@@ -39,11 +39,13 @@ def at_night_keys():
             'distance_from_home',
             'distance_from_school']
 
+def gis_log_fname(pid):
+    return "GIS/{0:s}.csv".format(pid)
 
 def analyze_participant(info, schools,
                         tois, cut_points_intensity, parameters,
                         tripWriter, atNightWriter) -> typing.Dict[str, typing.Any]:
-    years_of_collection = [2018, 2022]
+    years_of_collection = [2018, 2024]
     # Participant ID
     pid = info['participant_id']
 
@@ -100,13 +102,19 @@ def analyze_participant(info, schools,
     # Start and end dates
     if info["has_dates"]:
         try:
-            start_date = datetime.datetime.strptime(info["start_date"], "%m/%d/%Y")
+            if "/" in info["start_date"]:
+                start_date = datetime.datetime.strptime(info["start_date"], "%m/%d/%Y")
+            else:
+                start_date = datetime.datetime.strptime(info["start_date"], "%Y-%m-%d")
         except:
             print("WARNING: Participant {0:s} - Can not parse start date {1:s}".format(pid, info["start_date"]) )
             start_date = None
 
         try:
-            end_date = datetime.datetime.strptime(info["end_date"], "%m/%d/%Y")
+            if "/" in info["end_date"]:
+                end_date = datetime.datetime.strptime(info["end_date"], "%m/%d/%Y")
+            else:
+                end_date = datetime.datetime.strptime(info["end_date"], "%Y-%m-%d")
         except:
             print("WARNING: Participant {0:s} - Can not parse end date {1:s}".format(pid, info["end_date"]))
             end_date = None
@@ -232,7 +240,8 @@ def analyze_participant(info, schools,
     ret_val['actual_h2s_trips'] = gps.find_home2dest_trips(weekdays, tois)
     ret_val['actual_s2x_trips'] = gps.find_dest2x_trips(weekdays, tois)
 
-    TriplogAcc_writer_commuter(gps.trips, acc, cut_points_intensity, tripWriter)
+    TriplogAcc_writer_commuter(gps.trips, acc, cut_points_intensity, number_of_weekdays, info['ever_bike'], info['ever_walk'], tripWriter)
+    GISlog_writer_commuter2(gps, acc, cut_points_intensity, gis_log_fname(pid))
 
     at_night_rows = gps.findLocation(weekdays, tois['at_home_night'])
     atNightWriter.writerows(at_night_rows)
@@ -246,7 +255,7 @@ def analyze_participant(info, schools,
     #if info['has_ACC'] in ['0', 0]:
     #    Triplog_writer_commuter(gps, outfiles.trip_log_fname(pid))
     #else:
-    #    TriplogAcc_writer_commuter(gps, acc, cut_points_intensity, outfiles.trip_log_fname(pid))
+    #TriplogAcc_writer_commuter(gps, acc, cut_points_intensity, outfiles.trip_log_fname(pid))
     #
     #summary_stats = commute_trip_stats(gps, acc, cut_points_intensity)
     #summaryWriter.writerow(summary_stats)
@@ -256,7 +265,7 @@ def analyze_participant(info, schools,
     
 
 if __name__ == '__main__':
-    fname = 'STREETS_main.csv'
+    fname = 'STREETS_main_t2.csv'
     base_dir = "/Users/uvilla/Library/CloudStorage/Box-Box/STREETS Device data/Raw Device Data for GPS-ACC matching/Time 1 - data for new code"
     school_fname = os.path.join(base_dir, 'STREETS_schools_ER.csv')
 
@@ -310,7 +319,13 @@ if __name__ == '__main__':
         reader = csv.DictReader(fid)
         counter = 0
         success = 0
+        startId=''
+        skip = False
         for r in reader:
+            if r['participant_id'] == startId:
+                skip = False
+            if skip:
+                continue
             status = analyze_participant(r,  schools, tois,
                                          cut_points_intensity, parameters,
                                          tripWriter, atNightWriter)

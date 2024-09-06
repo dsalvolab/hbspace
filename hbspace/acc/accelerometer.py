@@ -135,10 +135,10 @@ class AccelerometerData:
         new_epoch = (new_local_dt[1]-new_local_dt[0])
         indexis = np.logical_and( self.local_dt > start-new_epoch, self.local_dt < end+new_epoch )
         
-        new_delta_dt = (new_local_dt-start)
-        new_x = np.array([dt.item().total_seconds() for dt in new_delta_dt])
-        delta_dt = (self.local_dt-start)
-        x = np.array([dt.item().total_seconds() for dt in delta_dt])
+        new_delta_dt = [ (nldt - start) for nldt in new_local_dt]
+        new_x = np.array([dt.total_seconds() for dt in new_delta_dt])
+        delta_dt = [(ldt - start) for ldt in self.local_dt]
+        x = np.array([dt.total_seconds() for dt in delta_dt])
         
         new_data = AccelerometerData(self.partID, fname = None, 
                                      local_dt = new_local_dt,

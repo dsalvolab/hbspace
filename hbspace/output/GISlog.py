@@ -137,11 +137,17 @@ def GISlog_writer_commuter(gpsData, fname_out):
 
                 writer.writerow(row)
 
-def GISlog_writer_commuter2(gpsData, fname_out):
+def GISlog_writer_commuter2(gpsData, accData, accCutPoints,fname_out):
 
     fieldnames = ['partid', 'fixid', 'fixdate', 'fixtime', 'fixlat','fixlon', 'speed',
                   'fixstate', 'is_home', 'is_dest',
-                  'tripid', 'Outbound_inbound', 'trip_type']
+                  'tripid', 'unique_tripid', 'trip_direction',
+                  'AX1_average_acc_counts_per_epoch',
+                  'VM_average_acc_counts_per_epoch',
+                  'intensity_levels']
+    
+    mathedAccData = accData.extract_and_interpolate(gpsData.local_datetime)
+    intensity_levels = mathedAccData.classify(accCutPoints)
 
     partid = gpsData.id
 
@@ -161,14 +167,22 @@ def GISlog_writer_commuter2(gpsData, fname_out):
             row['fixstate']= gpsData.state[index]
             row['is_home'] = gpsData.is_home[index]
             row['is_dest'] = gpsData.is_dest[index]
-            if gpsData.trip_marker[index] > -1:
-                row["tripid"] = gpsData.trip_marker[index]+1
-                row["trip_type"] = trip_mode[gpsData.trip_type[index]]
-                row['Outbound_inbound'] = gpsData.trip_outbound_inbound[index]
+            if gpsData.trip_marker[index] > 0:
+                row["tripid"] = int(gpsData.trip_marker[index])
+                row["unique_tripid"] = partid + "_{0:03d}".format( int(gpsData.trip_marker[index]) )
+                row['trip_direction'] = gpsData.trip_direction[index]
             else:
                 row["tripid"] = ''
-                row["trip_type"] = ''
-                row['Outbound_inbound'] = ''
+                row["unique_tripid"] = ''
+                row['trip_direction'] = ''
+            if mathedAccData.is_valid[index]:
+                row['AX1_average_acc_counts_per_epoch'] = mathedAccData.ax1_counts[index]
+                row['VM_average_acc_counts_per_epoch'] = mathedAccData.vm_counts[index]
+                row['intensity_levels'] = intensity_levels[index]
+            else:
+                row['AX1_average_acc_counts_per_epoch'] =""
+                row['VM_average_acc_counts_per_epoch'] = ""
+                row['intensity_levels'] = ""
 
             writer.writerow(row)
 

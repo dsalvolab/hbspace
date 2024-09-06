@@ -27,25 +27,32 @@ if __name__=='__main__':
     count_tot = 0
     at_least_one_trip_h2s = 0
     at_least_one_trip_s2x = 0
+    at_least_one_trip = 0
 
     for row in reportReader:
         count_tot = count_tot+1
         count[int(row['status'])] = count[int(row['status'])]+1
+        tt = 0
         try:
-            if int(row['estimated_h2s_trips']) >= 1:
+            if int(row['actual_h2s_trips']) >= 1:
                 at_least_one_trip_h2s = at_least_one_trip_h2s+1
+                tt = 1
         except:
             pass
         try:
-            if int(row['estimated_s2x_trips']) >= 1:
+            if int(row['actual_s2x_trips']) >= 1:
                 at_least_one_trip_s2x = at_least_one_trip_s2x+1
+                tt = 1
         except:
             pass
+        if tt == 1:
+            at_least_one_trip = at_least_one_trip + 1
 
     print("Total N: ", count_tot)
     print("Valid N: ", count[1])
-    print("With at least one h2s trip N: ", at_least_one_trip_h2s)
-    print("With at least one s2x trip N: ", at_least_one_trip_s2x)
+    print("N with at least one trip: ", at_least_one_trip)
+    print("N with at least one h2s trip: ", at_least_one_trip_h2s)
+    print("N with at least one s2x trip: ", at_least_one_trip_s2x)
     print("------------")
     print("Exclusion reasons")
     print("------------")

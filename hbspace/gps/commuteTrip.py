@@ -227,6 +227,9 @@ class CommuteTrip:
     def infoKeys(cls):
         keys =  [
                 "partid",          # Participant ID
+                "n_days",      # Number of valid days
+                "ever_bike",
+                "ever_walk",
                 "tripid",          # Trip ID
                 "unique_id",       # ParticipantID_TripID
                 'trip_direction',  # 0=X2X, etc
@@ -282,9 +285,12 @@ def Triplog_writer_commuter(trips, writer):
         data = trip.getInfo()
         writer.writerow(data)
 
-def TriplogAcc_writer_commuter(trips, accData, activities_cp, writer):
+def TriplogAcc_writer_commuter(trips, accData, activities_cp, valid_days, ever_bike, ever_walk, writer):
     for trip in trips:
         info = trip.getInfo()
         info_acc = trip.getAccInfo(accData,  activities_cp)
         info.update(info_acc)
+        info["n_days"] = valid_days
+        info["ever_bike"] = ever_bike
+        info["ever_walk"] = ever_walk
         writer.writerow(info)

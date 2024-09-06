@@ -32,7 +32,23 @@ def matchfile(pattern, files):
         cm = [m for m in match]
         match = []
         for m in cm:
-            if '_r_' in m:
+            if '_r_' in m: #GPS
+                match = []
+                match.append(m)
+                break
+            elif '_rawgps_r' in m: #GPS
+                match = []
+                match.append(m)
+                break
+            elif '_r15sec' in m: #ACC
+                match.append(m)
+                break
+            elif 'rawgps_csv_r' in m:
+                match = []
+                match.append(m)
+                break
+            elif 'rawgps_csv.' in m:
+                print("Guessing", cm)
                 match.append(m)
         assert len(match) > 0, "PID"+ pattern+ ": Lost all matches"+repr(cm)
 
@@ -65,7 +81,8 @@ def discovery(paths, output):
         fieldnames.append("start_date")
         fieldnames.append("end_date")
         fieldnames.append("school_id")
-        fieldnames.append("everbike")
+        fieldnames.append("ever_bike")
+        fieldnames.append("ever_walk")
         fieldnames.append("has_GPS")
         fieldnames.append("GPS_filename")
         fieldnames.append('has_ACC')
@@ -100,10 +117,18 @@ def discovery(paths, output):
 
             if pid in map_everbike:
                 pid_extra = map_everbike.pop(pid)
-                outrow['everbike'] = pid_extra['everbike']
+                if pid_extra['ever_bike'] in ["0", "1"]:
+                    outrow['ever_bike'] = pid_extra['ever_bike']
+                else:
+                    outrow['ever_bike'] = ""
+                if pid_extra['ever_walk'] in ["0", "1"]:
+                    outrow['ever_walk'] = pid_extra['ever_walk']
+                else:
+                    outrow['ever_walk'] = ""
             else:
                 print('WARNING: Participant {0:s} does not have everbike info'.format(pid))
-                outrow['everbike'] = ''
+                outrow['ever_bike'] = ''
+                outrow['ever_walk'] = ''
 
             gps_file = matchfile("_"+pid, gps_files)
             acc_file = matchfile("_"+pid, acc_files)
@@ -146,15 +171,18 @@ def discovery(paths, output):
             print( acc_files)
 
 if __name__ == "__main__":
-    base_dir = "/Users/uvilla/Library/CloudStorage/Box-Box/STREETS Device data/Raw Device Data for GPS-ACC matching/Time 1 - data for new code"
+    base_dir = "/Users/uvilla/Library/CloudStorage/Box-Box/STREETS Device data/"
+    ever_bike_walk_dir = os.path.join(base_dir, "Ever walk and bike")
+    common_dir = os.path.join(base_dir,"Raw Device Data for GPS-ACC matching")
+    raw_dev_date_dir = os.path.join(base_dir,"Raw Device Data for GPS-ACC matching/ACC & GPS data/Time 2")
     paths = {}
-    paths["part_home_address"] = os.path.join(base_dir, 'STREETS_cohort_participant_addresses_FIXED_12-21-2023.csv')
-    paths["part_start_end_date"] = os.path.join(base_dir, 'STREETS_t1_accelerometer_startend.csv')
-    paths["part_school_id"] = os.path.join(base_dir, 'STREETSCohortPartici-BaselineChild_DATA_2023-07-20_1021_SCHOOLID.csv')
-    paths["part_everbike"] = os.path.join(base_dir,'STREETS_biking_binary.csv')
-    paths["GPSfolder"] =  os.path.join(base_dir,'GPS')
-    paths["ACCfolder"] = os.path.join(base_dir,'Accelerometer/MATLAB')
-    output = 'STREETS_main.csv'
+    paths["part_home_address"] = os.path.join(common_dir, 'STREETS_cohort_participant_addresses_FIXED_12-21-2023.csv')
+    paths["part_start_end_date"] = os.path.join(raw_dev_date_dir, 'STREETS_t2_accelerometer_startend_8.12.24.csv')
+    paths["part_school_id"] = os.path.join(common_dir, 'STREETSCohortPartici-BaselineChild_DATA_2023-07-20_1021_SCHOOLID.csv')
+    paths["part_everbike"] = os.path.join(ever_bike_walk_dir,'walk_bike_t2.csv')
+    paths["GPSfolder"] =  os.path.join(raw_dev_date_dir,'GPS_RAWCSV')
+    paths["ACCfolder"] = os.path.join(raw_dev_date_dir,'ACC/MATLAB')
+    output = 'STREETS_main_t2.csv'
 
     discovery(paths, output)
 

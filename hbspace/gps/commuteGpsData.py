@@ -376,6 +376,9 @@ class CommuteGPSData:
             trip_start_index = trip_start_index - 1
             if trip_start_index == 0:
                 break
+
+        if trip_start_index+1 == self.state.shape[0]:
+            return None
         while self.state[trip_start_index+1] != GPSState.MOTION: 
             trip_start_index = trip_start_index + 1
             if trip_start_index == self.state.shape[0]-1:
